@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07050a" />
+  <title>Falling Weapons — 三消 × 落下武器</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>⛏</text></svg>" />
+</head>
+<body>
+  <main id="game">
+    <section id="board-pane" class="pane" aria-label="三消盤面">
+      <div class="hud board-hud">
+        <div class="board-top">
+          <ul id="reso" class="reso-row" aria-label="元素共鳴"></ul>
+          <button id="help-btn" class="icon-btn" type="button" aria-label="說明與武器圖鑑">?</button>
+        </div>
+        <div id="combo" class="combo" aria-live="polite"></div>
+      </div>
+      <div id="toasts" class="toasts" aria-live="polite"></div>
+    </section>
+
+    <section id="mine-pane" class="pane" aria-label="礦坑">
+      <div class="hud mine-hud">
+        <div class="topbar">
+          <span id="level-name" class="level-name"></span>
+          <span id="timer" class="timer">0:00</span>
+        </div>
+        <div class="meter-row">
+          <span class="meter-label">深度</span>
+          <div class="meter"><div id="depth-fill" class="meter-fill depth"></div></div>
+          <span id="depth-text" class="meter-text"></span>
+        </div>
+        <div class="meter-row">
+          <span class="meter-label">岩漿</span>
+          <span id="lava-text" class="meter-text lava"></span>
+          <span id="shield" class="shield" hidden>🛡 無敵</span>
+        </div>
+        <div id="boss-bar" class="meter-row boss" hidden>
+          <span class="meter-label">巨像</span>
+          <div class="meter"><div id="boss-fill" class="meter-fill bossfill"></div></div>
+        </div>
+        <div id="res" class="res-row" aria-label="資源"></div>
+      </div>
+      <ul id="weapon-cards" class="cards" aria-label="場上武器"></ul>
+    </section>
+  </main>
+
+  <dialog id="dlg-title" aria-labelledby="title-h" closedby="none">
+    <h1 id="title-h" class="logo">Falling Weapons</h1>
+    <p class="subtitle">三消 × 落下武器・礦坑冒險</p>
+    <ul class="howto">
+      <li><b>左邊三消</b>：一步（含連鎖）同色累計消 <b>4~6</b> 個 → 生成<b>初階武器</b>；消 <b>7+</b> 個 → <b>高階武器</b>。超過門檻越多，武器越強。</li>
+      <li>不到 4 個：累積該元素的<b>共鳴</b>，強化這一關所有同元素武器。</li>
+      <li><b>愛心</b>：場上所有武器回血；一次消 7 顆以上給 3 秒無敵。</li>
+      <li><b>右邊礦坑</b>：武器自動掉落挖礦、打怪、放大招。打穿<b>礦脈核心</b>或擊敗 <b>Boss</b> 過關。</li>
+      <li>小心：<b>岩漿</b>會從上方追下來，追上最深點或時間用完就失敗。</li>
+    </ul>
+    <form method="dialog">
+      <button class="btn primary" value="start" autofocus>開始冒險</button>
+    </form>
+    <p class="credit">玩法靈感：<a href="https://github.com/vycdev/falling-pickaxe" target="_blank" rel="noopener">vycdev/falling-pickaxe</a></p>
+  </dialog>
+
+  <dialog id="dlg-perk" aria-labelledby="perk-h" closedby="none">
+    <h2 id="perk-h">過關！選擇一項強化</h2>
+    <p id="perk-sub" class="subtitle"></p>
+    <form method="dialog" id="perk-form" class="perk-list"></form>
+  </dialog>
+
+  <dialog id="dlg-result" aria-labelledby="result-h" closedby="none">
+    <h2 id="result-h"></h2>
+    <p id="result-reason" class="subtitle"></p>
+    <div id="result-stats" class="stats"></div>
+    <form method="dialog">
+      <button class="btn primary" value="restart" autofocus>重新冒險</button>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-help" aria-labelledby="help-h" closedby="any">
+    <h2 id="help-h">武器圖鑑</h2>
+    <div id="help-body" class="help-body"></div>
+    <form method="dialog">
+      <button class="btn" value="close" autofocus>繼續遊戲</button>
+    </form>
+  </dialog>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
