@@ -1,13 +1,16 @@
 // The right-hand "Falling Pickaxe" part: Matter.js physics + Three.js HD-2D-style rendering.
 import * as THREE from 'three';
 import Matter from 'matter-js';
-import { BAL, BLOCKS, weaponElementMeta, type BlockType, type Element, type EnemyKind, type LevelDef, type Mods, type WeaponElement } from '../data/config';
+import {
+  BAL, BLOCKS, BOSS_CYCLE, weaponElementMeta,
+  type BlockType, type BossKind, type Element, type EnemyKind, type LevelDef, type Mods, type WeaponElement,
+} from '../data/config';
 import { WEAPONS, type WeaponId } from '../data/weapons';
 import { Tex } from '../gfx/pixel';
 import { Particles } from '../gfx/particles';
 import { Fx, type LightReq } from './fx';
 import { Weapon, onHit } from './weapon';
-import { Enemy, Golem } from './enemy';
+import { Balrog, Boss, Enemy, Golem, SpiderQueen, createBoss } from './enemy';
 
 export interface DmgSrc {
   element?: WeaponElement;
@@ -27,8 +30,20 @@ interface CellStatus {
   burnUntil: number;
   frostUntil: number;
 }
+interface BlockPool {
+  mesh: THREE.InstancedMesh;
+  free: number[];
+  max: number;
+}
+export interface SealGate {
+  id: number;
+  sealRow: number;
+  unlocked: boolean;
+  isBossGate: boolean;
+}
+
 export interface Projectile {
-  kind: 'arrow' | 'web' | 'rock' | 'shard' | 'meteor';
+  kind: 'arrow' | 'web' | 'rock' | 'fireball' | 'shard' | 'meteor';
   x: number; y: number; vx: number; vy: number; r: number; life: number;
   from: 'enemy' | 'weapon';
   dmg: number;
@@ -42,36 +57,62 @@ export interface Projectile {
 export interface MineCallbacks {
   onEnd: (win: boolean, reason: string) => void;
   onResource: (ore: string) => void;
+  onGateCleared?: (gateId: number, isBossGate: boolean) => void;
 }
 
 const BLOCK_TINT: Partial<Record<BlockType, number>> = {
-  dirt: 0x7a5232, stone: 0x7d7d82, deepslate: 0x4a4a52, obsidian: 0x3a2050, core: 0xc070ff,
+  dirt: 0x7a5232, stone: 0x7d7d82, deepslate: 0x4a4a52, obsidian: 0x3a2050, seal: 0x48d8f8, core: 0xc070ff,
   barrel: 0xd85028, crystal: 0x78e8ff,
   coal: 0x333333, iron: 0xd8b89a, copper: 0xe0763a, gold: 0xffd84a, redstone: 0xff2a2a, lapis: 0x2a5aff, diamond: 0x5affee, emerald: 0x2aff6a,
 };
 
+const BG_WINDOW_ROWS = 48;
+const SIDE_COLS = 7;
+
 export class Mine {
   readonly B = BAL.block;
   readonly cols = BAL.cols;
-  readonly rows: number;
+  readonly isEndless: boolean;
+  rows: number; // grows dynamically in Endless mode
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(30, 1, 0.5, 80);
   readonly fx: Fx;
   time = 0;
   timeLeft: number;
   readonly engine: Matter.Engine;
-  private grid: (BlockState | null)[];
+  private leftWall: Matter.Body;
+  private rightWall: Matter.Body;
+
+  private boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  private grid = new Map<number, BlockState>();
+  private pools = new Map<BlockType, BlockPool>();
+  private minStoredRow = 0;
+  private generatedToRow = BAL.airRows - 1;
+  private endlessChunkIdx = 0;
+  private recycleTimer = 0;
+
+  private backWallMesh!: THREE.InstancedMesh;
+  private outerWallMesh!: THREE.InstancedMesh;
+  private lastBgCenterRow = -9999;
+
   private status = new Map<number, CellStatus>();
   private damaged = new Set<number>();
-  private typeMeshes = new Map<BlockType, THREE.InstancedMesh>();
   private activeRows = new Set<number>();
+  private gates = new Map<number, SealGate>();
+  gatesCleared = 0;
+  kills = 0;
+
   weapons: Weapon[] = [];
   enemies: Enemy[] = [];
-  boss: Golem | null = null;
+  boss: Boss | null = null;
   private projectiles: Projectile[] = [];
   private scheduled: { t: number; fn: () => void }[] = [];
   private pendingHits = new Map<Weapon, Target>();
   private acc = 0;
+
+  overdriveActive = false;
+  overdriveDmgMul = 1.0;
+
   lavaY = -1.5 * BAL.block;
   deepestY: number;
   shieldUntil = 0;
@@ -89,7 +130,6 @@ export class Mine {
   private cracks: THREE.Mesh[] = [];
   private debris = new Particles(1500, 0.13, false);
   private sparks = new Particles(1200, 0.11, true);
-  private coreRow = -1;
   ended = false;
   readonly goalRow: number;
   private tmpMat = new THREE.Matrix4();
@@ -103,9 +143,10 @@ export class Mine {
     private cb: MineCallbacks,
   ) {
     this.fx = new Fx(this.scene);
-    this.timeLeft = level.time + mods.timeBonus;
-    const bottomRows = level.goal === 'core' ? 2 : 7;
-    this.rows = BAL.airRows + level.depth + bottomRows;
+    this.isEndless = level.goal === 'endless';
+    this.timeLeft = this.isEndless ? Infinity : level.time + mods.timeBonus;
+    const bottomRows = level.goal === 'core' ? 2 : 8;
+    this.rows = this.isEndless ? BAL.airRows + 90 : BAL.airRows + level.depth + bottomRows;
     this.goalRow = BAL.airRows + level.depth;
     this.deepestY = (BAL.airRows - 0.5) * this.B;
     this.lastFocusY = this.deepestY;
@@ -116,17 +157,26 @@ export class Mine {
     this.engine.velocityIterations = 4;
     Matter.Events.on(this.engine, 'collisionStart', (e) => this.onCollide(e));
     Matter.Events.on(this.engine, 'collisionActive', (e) => this.onCollide(e));
-    // tall bedrock walls
-    const H = this.rows * this.B;
-    for (const x of [this.B / 2, (this.cols - 0.5) * this.B]) {
-      const wall = Matter.Bodies.rectangle(x, H / 2 - 400, this.B, H + 800, { isStatic: true, friction: 0.1, restitution: 0.3 });
-      wall.plugin = { kind: 'wall' };
-      Matter.Composite.add(this.engine.world, wall);
-    }
 
-    this.grid = new Array(this.cols * this.rows).fill(null);
+    const wallH = 6000;
+    this.leftWall = Matter.Bodies.rectangle(this.B / 2, wallH / 2 - 800, this.B, wallH, { isStatic: true, friction: 0.1, restitution: 0.3 });
+    this.rightWall = Matter.Bodies.rectangle((this.cols - 0.5) * this.B, wallH / 2 - 800, this.B, wallH, { isStatic: true, friction: 0.1, restitution: 0.3 });
+    this.leftWall.plugin = { kind: 'wall' };
+    this.rightWall.plugin = { kind: 'wall' };
+    Matter.Composite.add(this.engine.world, [this.leftWall, this.rightWall]);
+
     this.setupScene();
-    this.generate();
+    this.setupSlidingBackdrop();
+    if (this.isEndless) {
+      for (let r = 0; r < BAL.airRows; r++) {
+        this.setCell(r, 0, 'bedrock', 1);
+        this.setCell(r, this.cols - 1, 'bedrock', 1);
+      }
+      this.ensureEndlessChunks();
+    } else {
+      this.generateCampaign();
+    }
+    this.updateBackdropPosition(Math.floor(-this.camY));
     this.lava = this.makeLava();
     this.lavaCrust = this.makeLavaCrust();
     this.lavaGlow = this.makeLavaGlow();
@@ -136,17 +186,186 @@ export class Mine {
   // ------------------------------------------------------------------ helpers
   idx(r: number, c: number) { return r * this.cols + c; }
   inB(r: number, c: number) { return r >= 0 && c >= 0 && r < this.rows && c < this.cols; }
-  block(r: number, c: number): BlockState | null { return this.inB(r, c) ? this.grid[this.idx(r, c)] : null; }
+  block(r: number, c: number): BlockState | null {
+    if (c < 0 || c >= this.cols || r < 0) return null;
+    return this.grid.get(this.idx(r, c)) ?? null;
+  }
+  isIndestructible(type: BlockType): boolean {
+    return type === 'bedrock' || type === 'seal';
+  }
   isSolid(r: number, c: number): boolean {
     if (c <= 0 || c >= this.cols - 1) return true;
     if (r < 0) return false;
-    if (r >= this.rows) return true;
-    return !!this.grid[this.idx(r, c)];
+    if (!this.isEndless && r >= this.rows) return true;
+    return this.grid.has(this.idx(r, c));
   }
   cellOf(x: number, y: number): [number, number] { return [Math.floor(y / this.B), Math.floor(x / this.B)]; }
   center(r: number, c: number): [number, number] { return [(c + 0.5) * this.B, (r + 0.5) * this.B]; }
   to3(x: number, y: number): THREE.Vector2 { return new THREE.Vector2(x / this.B - this.cols / 2, -y / this.B); }
   schedule(delay: number, fn: () => void) { this.scheduled.push({ t: delay, fn }); }
+
+  setOverdrive(active: boolean, dmgMul = 1.0) {
+    const entering = active && !this.overdriveActive;
+    this.overdriveActive = active;
+    this.overdriveDmgMul = active ? dmgMul : 1.0;
+    if (entering) {
+      for (const w of this.weapons) {
+        const p = this.to3(w.x, w.y);
+        this.fx.ring(p.x, p.y, 1.5, 0xffa838, 0.45);
+      }
+    }
+  }
+  emitOverdriveSpark(x3: number, y3: number) {
+    this.sparks.emit(x3 + (Math.random() - 0.5) * 0.6, y3 + (Math.random() - 0.5) * 0.6, 0.85, (Math.random() - 0.5) * 1.5, 1.4, 0, 0xffb840, 0.35, -1);
+  }
+
+  // ------------------------------------------------------------------ block pools & sliding backdrop
+  private getPool(t: BlockType): BlockPool {
+    let pool = this.pools.get(t);
+    if (pool) return pool;
+    const cap = t === 'stone' || t === 'deepslate' || t === 'bedrock' ? 1400 : 360;
+    const mat = new THREE.MeshStandardMaterial({ map: Tex.block(t), roughness: 0.92, metalness: 0 });
+    if (t === 'core') {
+      mat.emissive = new THREE.Color(0xffffff);
+      mat.emissiveMap = Tex.block(t);
+      mat.emissiveIntensity = 0.85;
+    } else if (t === 'seal') {
+      mat.emissive = new THREE.Color(0xffffff);
+      mat.emissiveMap = Tex.block(t);
+      mat.emissiveIntensity = 0.55;
+    } else if (t === 'crystal') {
+      mat.emissive = new THREE.Color(0xffffff);
+      mat.emissiveMap = Tex.block(t);
+      mat.emissiveIntensity = 0.5;
+    } else if (t === 'diamond' || t === 'emerald' || t === 'redstone' || t === 'gold' || t === 'lapis' || t === 'barrel') {
+      mat.emissive = new THREE.Color(0xffffff);
+      mat.emissiveMap = Tex.block(t);
+      mat.emissiveIntensity = t === 'barrel' ? 0.22 : 0.12;
+    }
+    const im = new THREE.InstancedMesh(this.boxGeo, mat, cap);
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    im.frustumCulled = false;
+    im.count = cap;
+    const free: number[] = [];
+    for (let i = cap - 1; i >= 0; i--) {
+      im.setMatrixAt(i, this.zeroMat);
+      im.setColorAt(i, this.tmpCol.setRGB(1, 1, 1));
+      free.push(i);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    this.scene.add(im);
+    pool = { mesh: im, free, max: cap };
+    this.pools.set(t, pool);
+    return pool;
+  }
+
+  private setCell(r: number, c: number, t: BlockType | null, hpMul: number) {
+    const key = this.idx(r, c);
+    const existing = this.grid.get(key);
+    if (existing) {
+      if (existing.body) Matter.Composite.remove(this.engine.world, existing.body);
+      const oldPool = this.getPool(existing.type);
+      oldPool.mesh.setMatrixAt(existing.inst, this.zeroMat);
+      oldPool.mesh.instanceMatrix.needsUpdate = true;
+      oldPool.free.push(existing.inst);
+      this.grid.delete(key);
+      this.damaged.delete(key);
+      this.status.delete(key);
+    }
+    if (!t) return;
+    let pool = this.getPool(t);
+    if (pool.free.length === 0) {
+      // emergency reclaim of oldest buried rows if pool ever fills
+      this.recycleRowsAbove(Math.floor(this.lavaY / this.B) - 4);
+      pool = this.getPool(t);
+      if (pool.free.length === 0) return;
+    }
+    const inst = pool.free.pop()!;
+    const p = this.to3(...this.center(r, c));
+    this.tmpMat.makeTranslation(p.x, p.y, 0);
+    pool.mesh.setMatrixAt(inst, this.tmpMat);
+    pool.mesh.setColorAt(inst, this.tmpCol.setRGB(1, 1, 1));
+    pool.mesh.instanceMatrix.needsUpdate = true;
+    if (pool.mesh.instanceColor) pool.mesh.instanceColor.needsUpdate = true;
+    const hp = this.isIndestructible(t) ? Infinity : BLOCKS[t].hp * hpMul;
+    const st: BlockState = { type: t, hp, maxHp: hp, inst, body: null };
+    this.grid.set(key, st);
+    if (this.activeRows.has(r) && c > 0 && c < this.cols - 1) {
+      const [bx, by] = this.center(r, c);
+      st.body = Matter.Bodies.rectangle(bx, by, this.B, this.B, { isStatic: true, friction: 0.4, restitution: 0.15, label: 'block' });
+      st.body.plugin = { kind: 'block', r, c };
+      Matter.Composite.add(this.engine.world, st.body);
+    }
+  }
+
+  private recycleRowsAbove(maxRow: number) {
+    if (maxRow <= this.minStoredRow) return;
+    const touched = new Set<BlockPool>();
+    for (let r = this.minStoredRow; r <= maxRow; r++) {
+      this.activeRows.delete(r);
+      for (let c = 0; c < this.cols; c++) {
+        const key = this.idx(r, c);
+        const b = this.grid.get(key);
+        if (!b) continue;
+        if (b.body) Matter.Composite.remove(this.engine.world, b.body);
+        const pool = this.getPool(b.type);
+        pool.mesh.setMatrixAt(b.inst, this.zeroMat);
+        pool.free.push(b.inst);
+        touched.add(pool);
+        this.grid.delete(key);
+        this.damaged.delete(key);
+        this.status.delete(key);
+      }
+    }
+    for (const pool of touched) pool.mesh.instanceMatrix.needsUpdate = true;
+    this.minStoredRow = maxRow + 1;
+  }
+
+  private setupSlidingBackdrop() {
+    this.backWallMesh = new THREE.InstancedMesh(
+      this.boxGeo,
+      new THREE.MeshStandardMaterial({ map: Tex.backWall(), color: 0xa09088, roughness: 1 }),
+      this.cols * BG_WINDOW_ROWS,
+    );
+    this.backWallMesh.frustumCulled = false;
+    this.scene.add(this.backWallMesh);
+
+    this.outerWallMesh = new THREE.InstancedMesh(
+      this.boxGeo,
+      new THREE.MeshStandardMaterial({ map: Tex.block('deepslate'), color: 0x8a8090, roughness: 1 }),
+      SIDE_COLS * 2 * BG_WINDOW_ROWS,
+    );
+    this.outerWallMesh.frustumCulled = false;
+    this.scene.add(this.outerWallMesh);
+  }
+
+  private updateBackdropPosition(centerRow: number) {
+    if (centerRow === this.lastBgCenterRow) return;
+    this.lastBgCenterRow = centerRow;
+    const startR = centerRow - Math.floor(BG_WINDOW_ROWS / 2);
+    let k = 0;
+    for (let r = startR; r < startR + BG_WINDOW_ROWS; r++) {
+      for (let c = 0; c < this.cols; c++) {
+        const p = this.to3(...this.center(r, c));
+        this.tmpMat.makeTranslation(p.x, p.y, -1);
+        this.backWallMesh.setMatrixAt(k++, this.tmpMat);
+      }
+    }
+    this.backWallMesh.instanceMatrix.needsUpdate = true;
+
+    k = 0;
+    for (let r = startR; r < startR + BG_WINDOW_ROWS; r++) {
+      for (let i = 1; i <= SIDE_COLS; i++) {
+        for (const c of [-i, this.cols - 1 + i]) {
+          const p = this.to3(...this.center(r, c));
+          this.tmpMat.makeTranslation(p.x, p.y, (i % 2) * 0.15 - 0.05);
+          this.outerWallMesh.setMatrixAt(k++, this.tmpMat);
+        }
+      }
+    }
+    this.outerWallMesh.instanceMatrix.needsUpdate = true;
+  }
 
   // ------------------------------------------------------------------ scene
   private setupScene() {
@@ -164,7 +383,7 @@ export class Mine {
     }
     s.add(this.debris.points, this.sparks.points);
     const crackGeo = new THREE.PlaneGeometry(1.002, 1.002);
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 36; i++) {
       const m = new THREE.Mesh(crackGeo, new THREE.MeshBasicMaterial({ map: Tex.crack(0), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
       m.visible = false;
       s.add(m);
@@ -204,14 +423,13 @@ export class Mine {
     return m;
   }
 
-  // ------------------------------------------------------------------ generation
-  private generate() {
+  // ------------------------------------------------------------------ generation (Campaign & Endless)
+  private generateCampaign() {
     const L = this.level;
     const A = BAL.airRows;
-    const types: (BlockType | null)[] = new Array(this.cols * this.rows).fill(null);
     for (let r = 0; r < this.rows; r++) {
-      types[this.idx(r, 0)] = 'bedrock';
-      types[this.idx(r, this.cols - 1)] = 'bedrock';
+      this.setCell(r, 0, 'bedrock', 1);
+      this.setCell(r, this.cols - 1, 'bedrock', 1);
     }
     for (let r = A; r < A + L.depth; r++) {
       const f = (r - A) / L.depth;
@@ -222,158 +440,257 @@ export class Mine {
         else if (f >= 0.1 && rr < 0.022) t = 'barrel';
         else if (f >= 0.18 && rr >= 0.022 && rr < 0.038) t = 'crystal';
         else if (f >= 0.08 && rr < 0.16) t = pickOre(f);
-        types[this.idx(r, c)] = t;
+        this.setCell(r, c, t, L.hpMul);
       }
     }
-    // hard rock strata bands (deepslate + obsidian + 1~2 embedded powder barrels to reward smart detonation!)
+
+    // Hard rock strata bands
     const bands = L.hardBands ?? 2;
     for (let bIdx = 1; bIdx <= bands; bIdx++) {
-      const bandRow = A + Math.floor((L.depth * bIdx) / (bands + 1));
-      if (bandRow < A + 8 || bandRow >= A + L.depth - 4) continue;
+      const bandRow = A + Math.floor((L.depth * (bIdx - 0.45)) / (bands + 0.5));
+      if (bandRow < A + 7 || bandRow >= A + L.depth - 7) continue;
       for (let r = bandRow; r <= bandRow + 1; r++) {
         for (let c = 1; c < this.cols - 1; c++) {
-          types[this.idx(r, c)] = Math.random() < (0.35 + bIdx * 0.1) ? 'obsidian' : 'deepslate';
+          this.setCell(r, c, Math.random() < (0.35 + bIdx * 0.08) ? 'obsidian' : 'deepslate', L.hpMul);
         }
       }
-      // place 1~2 powder barrels right on the top row of the hard band as tactical weak points
       const barrelCol = 2 + Math.floor(Math.random() * (this.cols - 4));
-      types[this.idx(bandRow, barrelCol)] = 'barrel';
-      if (Math.random() < 0.6) {
-        const col2 = 1 + Math.floor(Math.random() * (this.cols - 2));
-        types[this.idx(bandRow - 1, col2)] = 'barrel';
-      }
-    }
-    // caves
-    const caves: [number, number][] = [];
-    for (let i = 0; i < L.caves; i++) {
-      const rc = A + 6 + Math.floor(Math.random() * (L.depth - 12));
-      const cc = 2 + Math.floor(Math.random() * 5);
-      const rx = 1 + Math.random() * 1.5, ry = 0.6 + Math.random() * 0.8;
-      for (let r = Math.floor(rc - ry - 1); r <= rc + ry + 1; r++)
-        for (let c = 1; c < this.cols - 1; c++) {
-          const dx = (c - cc) / (rx + 0.5), dy = (r - rc) / (ry + 0.5);
-          if (dx * dx + dy * dy <= 1 && r >= A + 3 && r < A + L.depth - 2) types[this.idx(r, c)] = null;
-        }
-      caves.push([rc, cc]);
-      // occasional barrel or crystal on cave rim
-      if (Math.random() < 0.55) {
-        const rimC = Math.max(1, Math.min(this.cols - 2, cc + (Math.random() < 0.5 ? -2 : 2)));
-        if (types[this.idx(rc, rimC)]) {
-          types[this.idx(rc, rimC)] = Math.random() < 0.55 ? 'barrel' : 'crystal';
-        }
-      }
-    }
-    // goal
-    if (L.goal === 'core') {
-      this.coreRow = A + L.depth;
-      for (let c = 1; c < this.cols - 1; c++) {
-        types[this.idx(this.coreRow, c)] = 'core';
-        types[this.idx(this.coreRow + 1, c)] = 'bedrock';
-      }
-    } else {
-      for (let c = 1; c < this.cols - 1; c++) {
-        types[this.idx(A + L.depth + 5, c)] = 'bedrock';
-        types[this.idx(A + L.depth + 6, c)] = 'bedrock';
-      }
+      this.setCell(bandRow, barrelCol, 'barrel', L.hpMul);
     }
 
-    // instanced meshes per type
-    const counts = new Map<BlockType, number>();
-    for (const t of types) if (t) counts.set(t, (counts.get(t) ?? 0) + 1);
-    const geo = new THREE.BoxGeometry(1, 1, 1);
-    for (const [t, n] of counts) {
-      const mat = new THREE.MeshStandardMaterial({ map: Tex.block(t), roughness: 0.92, metalness: 0 });
-      if (t === 'core') {
-        mat.emissive = new THREE.Color(0xffffff);
-        mat.emissiveMap = Tex.block(t);
-        mat.emissiveIntensity = 0.9;
-      }
-      if (t === 'diamond' || t === 'emerald' || t === 'redstone' || t === 'gold' || t === 'lapis' || t === 'barrel') {
-        mat.emissive = new THREE.Color(0xffffff);
-        mat.emissiveMap = Tex.block(t);
-        mat.emissiveIntensity = t === 'barrel' ? 0.22 : 0.12;
-      }
-      if (t === 'crystal') {
-        mat.emissive = new THREE.Color(0xffffff);
-        mat.emissiveMap = Tex.block(t);
-        mat.emissiveIntensity = 0.5;
-      }
-      const im = new THREE.InstancedMesh(geo, mat, n);
-      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      im.count = 0;
-      this.typeMeshes.set(t, im);
-      this.scene.add(im);
-    }
-    for (let r = 0; r < this.rows; r++)
-      for (let c = 0; c < this.cols; c++) {
-        const t = types[this.idx(r, c)];
-        if (!t) continue;
-        const im = this.typeMeshes.get(t)!;
-        const inst = im.count++;
-        const p = this.to3(...this.center(r, c));
-        this.tmpMat.makeTranslation(p.x, p.y, 0);
-        im.setMatrixAt(inst, this.tmpMat);
-        im.setColorAt(inst, this.tmpCol.setRGB(1, 1, 1));
-        const hp = t === 'bedrock' ? Infinity : BLOCKS[t].hp * L.hpMul;
-        this.grid[this.idx(r, c)] = { type: t, hp, maxHp: hp, inst, body: null };
-      }
-    for (const im of this.typeMeshes.values()) {
-      im.instanceMatrix.needsUpdate = true;
-      if (im.instanceColor) im.instanceColor.needsUpdate = true;
-      im.computeBoundingSphere();
-    }
-
-    // back wall + decorative outer rock
-    const backRows = this.rows + 14;
-    const back = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ map: Tex.backWall(), color: 0xa09088, roughness: 1 }), this.cols * backRows);
-    let k = 0;
-    for (let r = -14; r < this.rows; r++)
-      for (let c = 0; c < this.cols; c++) {
-        const p = this.to3(...this.center(r, c));
-        this.tmpMat.makeTranslation(p.x, p.y, -1);
-        back.setMatrixAt(k++, this.tmpMat);
-      }
-    this.scene.add(back);
-    const sideCols = 7;
-    const outer = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ map: Tex.block('deepslate'), color: 0x8a8090, roughness: 1 }), sideCols * 2 * backRows);
-    k = 0;
-    for (let r = -14; r < this.rows; r++)
-      for (let i = 1; i <= sideCols; i++)
-        for (const c of [-i, this.cols - 1 + i]) {
-          const p = this.to3(...this.center(r, c));
-          this.tmpMat.makeTranslation(p.x, p.y, (i % 2) * 0.15 - 0.05);
-          outer.setMatrixAt(k++, this.tmpMat);
-        }
-    this.scene.add(outer);
-
-    // enemies in caves
+    // Caves & cave monsters
     const weights = Object.entries(L.enemies) as [EnemyKind, number][];
-    const totalW = weights.reduce((s, [, w]) => s + w, 0);
-    for (const [rc, cc] of caves) {
-      const floors: [number, number][] = [];
-      for (let r = rc - 2; r <= rc + 2; r++)
-        for (let c = Math.max(1, cc - 3); c <= Math.min(this.cols - 2, cc + 3); c++)
-          if (this.inB(r, c) && !this.block(r, c) && this.isSolid(r + 1, c) && r >= BAL.airRows + 3) floors.push([r, c]);
-      const n = Math.min(floors.length, 1 + (Math.random() < 0.5 ? 1 : 0));
-      for (let i = 0; i < n; i++) {
-        const [r, c] = floors.splice(Math.floor(Math.random() * floors.length), 1)[0];
-        let pick = Math.random() * totalW;
-        let kind: EnemyKind = weights[0][0];
-        for (const [kk, w] of weights) { if (pick < w) { kind = kk; break; } pick -= w; }
-        this.spawnEnemy(kind, (c + 0.5) * this.B, (r + 1) * this.B - this.B * 0.4);
-      }
+    for (let i = 0; i < L.caves; i++) {
+      const rc = A + 6 + Math.floor(Math.random() * (L.depth - 14));
+      const cc = 2 + Math.floor(Math.random() * 5);
+      this.carveCave(rc, cc, A + 3, A + L.depth - 6, L.hpMul, L.enemyHpMul, weights);
     }
-    if (L.goal === 'boss') {
-      const floorY = (BAL.airRows + L.depth + 5) * this.B;
-      const g = new Golem(this, (this.cols / 2) * this.B, floorY - this.B * 1.5, L.enemyHpMul / 1.6);
-      this.boss = g;
-      this.addEnemy(g);
-      Matter.Composite.add(this.engine.world, g.body);
+
+    // Mid-level Gatekeeper Seal Chambers!
+    const numGates = L.gates ?? 1;
+    for (let gIdx = 1; gIdx <= numGates; gIdx++) {
+      const sealRow = A + Math.floor((L.depth * gIdx) / (numGates + 1));
+      const elites = gIdx === numGates && L.enemyHpMul >= 3.5 ? 2 : 1;
+      const regulars = 2 + (gIdx % 2);
+      this.buildGateChamber(gIdx, sealRow, elites, regulars, L.hpMul, L.enemyHpMul, weights);
+    }
+
+    // Stage Goal: Core (with Final Elite Gatekeepers!) or Stage Boss
+    if (L.goal === 'core') {
+      const coreRow = A + L.depth;
+      const finalSealRow = coreRow - 1;
+      this.buildGateChamber(900, finalSealRow, L.endElites ?? 1, 2, L.hpMul, L.enemyHpMul, weights);
+      for (let c = 1; c < this.cols - 1; c++) {
+        this.setCell(coreRow, c, 'core', L.hpMul);
+        this.setCell(coreRow + 1, c, 'bedrock', 1);
+      }
+    } else if (L.goal === 'boss') {
+      const floorRow = A + L.depth + 5;
+      for (let r = A + L.depth - 1; r < floorRow; r++) {
+        for (let c = 1; c < this.cols - 1; c++) this.setCell(r, c, null, 1);
+      }
+      for (let c = 1; c < this.cols - 1; c++) {
+        this.setCell(floorRow, c, 'bedrock', 1);
+        this.setCell(floorRow + 1, c, 'bedrock', 1);
+      }
+      const bKind: BossKind = L.boss ?? 'golem';
+      const floorY = floorRow * this.B;
+      // Campaign Bosses use their exact designed base HP from ENEMY_STATS (hpMul = 1.0)
+      const boss = createBoss(this, bKind, (this.cols / 2) * this.B, floorY - this.B * 1.5, 1.0);
+      this.boss = boss;
+      this.addEnemy(boss);
+      Matter.Composite.add(this.engine.world, boss.body);
+    }
+    this.generatedToRow = this.rows - 1;
+  }
+
+  /** Stream new 35-row Endless segments ahead of deepestY! */
+  private ensureEndlessChunks() {
+    const neededRow = Math.floor(this.deepestY / this.B) + 52;
+    while (this.generatedToRow < neededRow) {
+      this.endlessChunkIdx++;
+      const k = this.endlessChunkIdx;
+      const segStart = this.generatedToRow + 1;
+      const sealRow = BAL.airRows + k * BAL.endlessGateEvery;
+      this.rows = Math.max(this.rows, sealRow + 20);
+
+      const blockMul = Math.pow(BAL.endlessBlockScalePerGate, k - 1);
+      const enemyMul = Math.pow(BAL.endlessEnemyScalePerGate, k - 1);
+      const weights: [EnemyKind, number][] = [['zombie', 3], ['skeleton', 2.5], ['mushroom', 2.5], ['spider', 2.5]];
+
+      for (let r = segStart; r <= sealRow; r++) {
+        this.setCell(r, 0, 'bedrock', 1);
+        this.setCell(r, this.cols - 1, 'bedrock', 1);
+        const depthM = r - BAL.airRows;
+        const f = Math.min(1, depthM / 140);
+        for (let c = 1; c < this.cols - 1; c++) {
+          let t: BlockType = depthM < 8 ? 'dirt' : f < 0.45 ? 'stone' : 'deepslate';
+          const rr = Math.random();
+          if (f > 0.35 && rr < 0.04) t = 'obsidian';
+          else if (depthM >= 6 && rr < 0.025) t = 'barrel';
+          else if (depthM >= 10 && rr >= 0.025 && rr < 0.043) t = 'crystal';
+          else if (depthM >= 5 && rr < 0.17) t = pickOre(f);
+          this.setCell(r, c, t, blockMul);
+        }
+      }
+
+      // 1 hard band + 2 caves in each 35-row segment
+      const bandRow = segStart + 12;
+      if (bandRow < sealRow - 7) {
+        for (let r = bandRow; r <= bandRow + 1; r++) {
+          for (let c = 1; c < this.cols - 1; c++) {
+            this.setCell(r, c, Math.random() < 0.45 ? 'obsidian' : 'deepslate', blockMul);
+          }
+        }
+        this.setCell(bandRow, 2 + Math.floor(Math.random() * (this.cols - 4)), 'barrel', blockMul);
+      }
+      for (const offset of [7, 20]) {
+        const rc = segStart + offset;
+        if (rc < sealRow - 6) {
+          this.carveCave(rc, 2 + Math.floor(Math.random() * 5), segStart + 2, sealRow - 6, blockMul, enemyMul, weights);
+        }
+      }
+
+      // Every 3rd gate (105m, 210m, 315m...) is a Boss Seal Chamber!
+      if (k % 3 === 0) {
+        const bossCycleIdx = (k / 3 - 1) % BOSS_CYCLE.length;
+        const bKind = BOSS_CYCLE[bossCycleIdx];
+        this.buildEndlessBossGate(k, sealRow, bKind, enemyMul);
+      } else {
+        const elites = 1 + Math.floor(k / 4);
+        const regulars = 2 + (k % 3);
+        this.buildGateChamber(k, sealRow, elites, regulars, blockMul, enemyMul, weights);
+      }
+
+      this.generatedToRow = sealRow;
     }
   }
 
-  spawnEnemy(kind: EnemyKind, x: number, y: number) {
-    const e = new Enemy(this, kind, x, y, this.level.enemyHpMul);
+  private carveCave(
+    rc: number, cc: number, minR: number, maxR: number,
+    blockMul: number, enemyMul: number, weights: [EnemyKind, number][],
+  ) {
+    const rx = 1 + Math.random() * 1.5, ry = 0.6 + Math.random() * 0.8;
+    for (let r = Math.floor(rc - ry - 1); r <= rc + ry + 1; r++) {
+      for (let c = 1; c < this.cols - 1; c++) {
+        const dx = (c - cc) / (rx + 0.5), dy = (r - rc) / (ry + 0.5);
+        if (dx * dx + dy * dy <= 1 && r >= minR && r <= maxR) this.setCell(r, c, null, 1);
+      }
+    }
+    if (Math.random() < 0.55) {
+      const rimC = Math.max(1, Math.min(this.cols - 2, cc + (Math.random() < 0.5 ? -2 : 2)));
+      if (this.block(rc, rimC)) this.setCell(rc, rimC, Math.random() < 0.55 ? 'barrel' : 'crystal', blockMul);
+    }
+    // Spawn 1~2 cave guards
+    const floors: [number, number][] = [];
+    for (let r = rc - 2; r <= rc + 2; r++) {
+      for (let c = Math.max(1, cc - 3); c <= Math.min(this.cols - 2, cc + 3); c++) {
+        if (r >= minR && !this.block(r, c) && this.isSolid(r + 1, c)) floors.push([r, c]);
+      }
+    }
+    const n = Math.min(floors.length, 1 + (Math.random() < 0.5 ? 1 : 0));
+    for (let i = 0; i < n; i++) {
+      const [r, c] = floors.splice(Math.floor(Math.random() * floors.length), 1)[0];
+      this.spawnEnemy(pickWeightedEnemy(weights), (c + 0.5) * this.B, (r + 1) * this.B - this.B * 0.43, enemyMul);
+    }
+  }
+
+  private buildGateChamber(
+    gateId: number, sealRow: number, elites: number, regulars: number,
+    blockMul: number, enemyMul: number, weights: [EnemyKind, number][],
+  ) {
+    // Remove any pre-existing cave monsters caught inside this 4-row arena so counts are clean
+    for (let r = sealRow - 4; r < sealRow; r++) {
+      for (let c = 1; c < this.cols - 1; c++) this.setCell(r, c, null, 1);
+    }
+    for (let c = 1; c < this.cols - 1; c++) {
+      this.setCell(sealRow, c, 'seal', blockMul);
+    }
+    this.gates.set(gateId, { id: gateId, sealRow, unlocked: false, isBossGate: false });
+
+    const cols = [1, 2, 3, 4, 5, 6, 7].sort(() => Math.random() - 0.5);
+    let idx = 0;
+    const floorY = sealRow * this.B;
+    for (let i = 0; i < elites && idx < cols.length; i++) {
+      const c = cols[idx++];
+      const e = this.spawnEnemy(pickWeightedEnemy(weights), (c + 0.5) * this.B, floorY - this.B * 0.55, enemyMul);
+      e.promoteElite();
+      e.gateId = gateId;
+    }
+    for (let i = 0; i < regulars && idx < cols.length; i++) {
+      const c = cols[idx++];
+      const e = this.spawnEnemy(pickWeightedEnemy(weights), (c + 0.5) * this.B, floorY - this.B * 0.43, enemyMul);
+      e.gateId = gateId;
+    }
+  }
+
+  private buildEndlessBossGate(gateId: number, sealRow: number, bKind: BossKind, enemyMul: number) {
+    for (let r = sealRow - 6; r < sealRow; r++) {
+      for (let c = 1; c < this.cols - 1; c++) this.setCell(r, c, null, 1);
+    }
+    for (let c = 1; c < this.cols - 1; c++) {
+      this.setCell(sealRow, c, 'seal', 1);
+    }
+    this.gates.set(gateId, { id: gateId, sealRow, unlocked: false, isBossGate: true });
+    const floorY = sealRow * this.B;
+    // Normalize Endless Boss HP relative to golem's 9500 base so scaling is smooth across cycles
+    const normFactor = 9500 / ENEMY_STATS_BASE_HP[bKind];
+    const boss = createBoss(this, bKind, (this.cols / 2) * this.B, floorY - this.B * 1.5, normFactor * enemyMul);
+    boss.gateId = gateId;
+    if (!this.boss || this.boss.dead) this.boss = boss;
+    this.addEnemy(boss);
+    Matter.Composite.add(this.engine.world, boss.body);
+  }
+
+  private checkGateUnlock(gateId: number | null) {
+    if (gateId === null) return;
+    const gate = this.gates.get(gateId);
+    if (!gate || gate.unlocked) return;
+    const remaining = this.enemies.some((e) => !e.dead && e.gateId === gateId);
+    if (remaining) return;
+
+    gate.unlocked = true;
+    this.gatesCleared++;
+    for (let c = 1; c < this.cols - 1; c++) {
+      const b = this.block(gate.sealRow, c);
+      if (b?.type === 'seal') {
+        const p = this.to3(...this.center(gate.sealRow, c));
+        this.sparks.burst(p.x, p.y, 0.7, 14, 0x78f0ff, 4, 0.65, -3);
+        this.debris.burst(p.x, p.y, 0.6, 8, 0x3898c8, 3.5, 0.7);
+        this.setCell(gate.sealRow, c, null, 1);
+      }
+    }
+    const mid = this.to3(...this.center(gate.sealRow, 4));
+    this.fx.ring(mid.x, mid.y, 3.4, 0x78f0ff, 0.6);
+    this.fx.text(mid.x, mid.y + 0.8, gate.isBossGate ? '🔓 首領結界破除！' : '🔓 守層結界破除！', '#7ef8ff', 1.5, 0.56);
+    this.fx.shake = Math.max(this.fx.shake, 0.22);
+    if (this.isEndless) {
+      this.cb.onGateCleared?.(gateId, gate.isBossGate);
+    }
+  }
+
+  /** Info about an approaching/active locked SealGate near the current focus or camera depth. */
+  activeGateInfo(): { remaining: number; depthM: number; isBoss: boolean } | null {
+    const deepRow = Math.floor(this.deepestY / this.B);
+    const camRow = Math.floor(-this.camY);
+    let nearest: SealGate | null = null;
+    for (const g of this.gates.values()) {
+      if (g.unlocked) continue;
+      const nearDeepest = g.sealRow >= deepRow - 2 && g.sealRow - deepRow <= 18;
+      const nearCam = Math.abs(g.sealRow - camRow) <= 12;
+      if ((nearDeepest || nearCam) && (!nearest || g.sealRow < nearest.sealRow)) nearest = g;
+    }
+    if (!nearest) return null;
+    const rem = this.enemies.filter((e) => !e.dead && e.gateId === nearest!.id).length;
+    if (rem === 0) {
+      this.checkGateUnlock(nearest.id);
+      return null;
+    }
+    return { remaining: rem, depthM: Math.max(0, nearest.sealRow - BAL.airRows), isBoss: nearest.isBossGate };
+  }
+
+  spawnEnemy(kind: EnemyKind, x: number, y: number, hpMul = this.level.enemyHpMul) {
+    const e = new Enemy(this, kind, x, y, hpMul);
     this.addEnemy(e);
     Matter.Composite.add(this.engine.world, e.body);
     return e;
@@ -385,7 +702,6 @@ export class Mine {
   }
 
   // ------------------------------------------------------------------ weapons
-  /** Checks whether multiple copies of `id` are unlocked (element resonance === Lv5). */
   canMultiCopy(id: WeaponId): boolean {
     const def = WEAPONS[id];
     if (def.element === 'holy') {
@@ -394,10 +710,6 @@ export class Mine {
     return this.resonance[def.element] >= BAL.resonanceMaxLv;
   }
 
-  /**
-   * Acquires a weapon: if element resonance < Lv5 and a copy of `id` is already alive,
-   * heals it to full and boosts its damage instead of spawning a duplicate.
-   */
   acquireWeapon(id: WeaponId, power: number, forceSpawn = false): { weapon: Weapon; mode: 'spawned' | 'upgraded' } {
     if (!forceSpawn && !this.canMultiCopy(id)) {
       const existing = this.weapons.find((w) => !w.dead && w.def.id === id);
@@ -412,7 +724,6 @@ export class Mine {
   spawnWeapon(id: WeaponId, power: number): Weapon {
     const [x, y] = this.findSpawnPoint();
     const w = new Weapon(this, id, power, x, y);
-    // Give brief protection if spawning very close to lava
     if (y - this.lavaY < this.B * 3) w.invulnUntil = Math.max(w.invulnUntil, this.time + 1.5);
     this.weapons.push(w);
     this.scene.add(w.group);
@@ -423,7 +734,6 @@ export class Mine {
     this.fx.ring(p.x, p.y, 1.4, meta.color, 0.5);
     this.fx.text(p.x, p.y - 0.9, w.def.name, meta.css, 1.3, 0.48);
     this.sparks.burst(p.x, p.y, 0.8, 22, meta.color, 3.6, 0.55, 0);
-    // safety cap: prefer replacing lowest-HP low-tier weapon first
     if (this.weapons.length > BAL.maxWeapons) {
       const lowCandidates = this.weapons.filter((o) => o !== w && o.def.category === 'low');
       const pool = lowCandidates.length ? lowCandidates : this.weapons.filter((o) => o !== w);
@@ -517,7 +827,10 @@ export class Mine {
         const b = this.block(t.r, t.c);
         if (!b) continue;
         if (!w.invuln && !w.def.lifespanDecay) w.hp -= BLOCKS[b.type].wear * this.mods.wearMul;
-        if (b.type === 'bedrock') continue;
+        if (this.isIndestructible(b.type)) {
+          if (w.hp <= 0) this.killWeapon(w);
+          continue;
+        }
         w.lastHit = this.time;
         this.damageCell(t.r, t.c, w.dmg, w.src('hit'));
         const [x, y] = this.center(t.r, t.c);
@@ -538,7 +851,7 @@ export class Mine {
     const need = new Set<number>();
     for (const w of this.weapons) {
       const r = Math.floor(w.y / this.B);
-      for (let k = r - 3; k <= r + 3; k++) if (k >= 0 && k < this.rows) need.add(k);
+      for (let k = r - 3; k <= r + 3; k++) if (k >= this.minStoredRow && k < this.rows) need.add(k);
     }
     for (const r of this.activeRows) if (!need.has(r)) this.setRowBodies(r, false);
     for (const r of need) if (!this.activeRows.has(r)) this.setRowBodies(r, true);
@@ -547,7 +860,7 @@ export class Mine {
 
   private setRowBodies(r: number, on: boolean) {
     for (let c = 1; c < this.cols - 1; c++) {
-      const b = this.grid[this.idx(r, c)];
+      const b = this.block(r, c);
       if (!b) continue;
       if (on && !b.body) {
         const [x, y] = this.center(r, c);
@@ -562,10 +875,9 @@ export class Mine {
   }
 
   // ------------------------------------------------------------------ damage API
-  /** Returns null if nothing damageable there, otherwise whether it was destroyed. */
   damageCell(r: number, c: number, dmg: number, src: DmgSrc): boolean | null {
     const b = this.block(r, c);
-    if (!b || b.type === 'bedrock' || c <= 0 || c >= this.cols - 1) return null;
+    if (!b || this.isIndestructible(b.type) || c <= 0 || c >= this.cols - 1) return null;
     const i = this.idx(r, c);
     let d = dmg;
     if (src.kind !== 'dot') {
@@ -586,13 +898,12 @@ export class Mine {
 
   private destroyBlock(r: number, c: number, _src: DmgSrc) {
     const i = this.idx(r, c);
-    const b = this.grid[i]!;
-    this.grid[i] = null;
-    this.damaged.delete(i);
-    if (b.body) Matter.Composite.remove(this.engine.world, b.body);
-    const im = this.typeMeshes.get(b.type)!;
-    im.setMatrixAt(b.inst, this.zeroMat);
-    im.instanceMatrix.needsUpdate = true;
+    const b = this.grid.get(i);
+    if (!b) return;
+    const st = this.status.get(i);
+    // Free cell & instance first to prevent any re-entrant recursion on barrel chains
+    this.setCell(r, c, null, 1);
+
     const p = this.to3(...this.center(r, c));
     const tint = BLOCK_TINT[b.type] ?? 0x888888;
     this.debris.burst(p.x, p.y, 0.5, 8, tint, 3, 0.7);
@@ -601,19 +912,17 @@ export class Mine {
       this.sparks.burst(p.x, p.y, 0.7, 10, tint, 3, 0.7, -2);
       this.cb.onResource(info.ore);
     }
-    // plague spread
-    const st = this.status.get(i);
     if (st && st.plague && st.poisonUntil > this.time) {
       for (let dr = -1; dr <= 1; dr++)
         for (let dc = -1; dc <= 1; dc++)
           if (dr || dc) this.poisonCell(r + dr, c + dc, st.poisonDps, 3, true, st.venomUntil > this.time);
       this.sparks.burst(p.x, p.y, 0.7, 10, 0x7ee05a, 2, 0.7, 0);
     }
-    this.status.delete(i);
     if (b.type === 'barrel') {
       const [cx, cy] = this.center(r, c);
       this.fx.text(p.x, p.y + 0.5, '🧨 轟爆！', '#ffaa48', 0.9, 0.42);
-      this.explode(cx, cy, BAL.barrelRad, BAL.barrelDmg * this.level.hpMul, { kind: 'explosion' });
+      const scale = this.isEndless ? Math.pow(BAL.endlessBlockScalePerGate, Math.max(0, this.endlessChunkIdx - 1)) : this.level.hpMul;
+      this.explode(cx, cy, BAL.barrelRad, BAL.barrelDmg * scale, { kind: 'explosion' });
     } else if (b.type === 'crystal') {
       this.healAll(BAL.crystalHealPct);
       this.fx.ring(p.x, p.y, 2.2, 0x7ef4ff, 0.5);
@@ -629,10 +938,22 @@ export class Mine {
     let d = dmg * this.mods.enemyDmgMul;
     if (src.weapon?.def.id === 'boomerang' && e.frozen) d *= 2;
     if (src.kind !== 'dot' && e.venomUntil > this.time) d *= 1.5;
-    if (e instanceof Golem && e.shelled) {
+
+    // 3-Boss elemental shield counterplay
+    if (e instanceof Golem && e.shielded) {
       if (src.kind === 'thunder' || src.kind === 'explosion' || src.kind === 'holy') e.breakShell();
       else d *= 0.5;
+    } else if (e instanceof SpiderQueen && e.shielded) {
+      if (src.element === 'fire' || src.kind === 'fire' || src.crit) e.breakCocoon();
+      else d *= 0.6;
+    } else if (e instanceof Balrog && e.shielded) {
+      if (src.element === 'ice' || src.kind === 'ice' || src.kind === 'holy') e.breakMoltenShield();
+      else {
+        d *= 0.4;
+        if (src.kind === 'hit' && src.weapon) this.hurtWeapon(src.weapon, 8 * e.dmgMul);
+      }
     }
+
     e.hp -= d;
     if (src.kind !== 'dot') e.hurtFlash = 0.08;
     if (e.hp <= 0) this.killEnemy(e);
@@ -641,20 +962,28 @@ export class Mine {
   private killEnemy(e: Enemy) {
     if (e.dead) return;
     e.dead = true;
+    this.kills++;
     Matter.Composite.remove(this.engine.world, e.body);
     this.scene.remove(e.group);
     this.enemies = this.enemies.filter((o) => o !== e);
     const p = this.to3(e.x, e.y);
-    this.debris.burst(p.x, p.y, 0.6, e.isBoss ? 80 : 14, 0xa04040, e.isBoss ? 8 : 3, 0.8);
+    this.debris.burst(p.x, p.y, 0.6, e.isBoss ? 70 : e.isElite ? 28 : 14, 0xa04040, e.isBoss ? 7 : 3.2, 0.8);
     if (e.plague && e.poisonUntil > this.time) {
       for (const o of this.enemiesInRadius(e.x, e.y, 2 * this.B)) this.poisonEnemy(o, e.poisonDps, 3, 1, true);
       const [r, c] = this.cellOf(e.x, e.y);
       for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) this.poisonCell(r + dr, c + dc, e.poisonDps, 3, true);
       this.fx.ring(p.x, p.y, 2, 0x7ee05a, 0.5);
     }
-    if (e.isBoss && !this.ended) {
+    if (this.boss === e) {
+      // Find next alive Boss if any (in Endless), otherwise clear
+      this.boss = (this.enemies.find((o) => o.isBoss && !o.dead) as Boss | undefined) ?? null;
+    }
+    if (e.gateId !== null) {
+      this.checkGateUnlock(e.gateId);
+    }
+    if (e.isBoss && !this.isEndless && !this.ended) {
       this.fx.explosion(p.x, p.y, 4, 0xffa040);
-      this.end(true, '擊敗岩石巨像！');
+      this.end(true, `擊敗${ENEMY_STATS_NAME[e.kind as BossKind]}！`);
     }
   }
 
@@ -662,7 +991,11 @@ export class Mine {
     for (let r = r0 - rad; r <= r0 + rad; r++) for (let c = c0 - rad; c <= c0 + rad; c++) this.damageCell(r, c, dmg, src);
     const [x, y] = this.center(r0, c0);
     const half = (rad + 0.5) * this.B;
-    for (const e of [...this.enemies]) if (Math.abs(e.x - x) <= half + e.size * this.B * 0.5 && Math.abs(e.y - y) <= half + e.size * this.B * 0.5) this.damageEnemy(e, dmg, src);
+    for (const e of [...this.enemies]) {
+      if (Math.abs(e.x - x) <= half + e.size * this.B * 0.5 && Math.abs(e.y - y) <= half + e.size * this.B * 0.5) {
+        this.damageEnemy(e, dmg, src);
+      }
+    }
   }
 
   explode(x: number, y: number, radBlocks: number, dmg: number, src: DmgSrc) {
@@ -677,14 +1010,14 @@ export class Mine {
     for (const e of this.enemiesInRadius(x, y, (radBlocks + 0.5) * this.B)) this.damageEnemy(e, dmg, src);
     const p = this.to3(x, y);
     this.fx.explosion(p.x, p.y, radBlocks, 0xff8a2a);
-    this.sparks.burst(p.x, p.y, 0.7, 26, 0xffa040, 5, 0.6, -4);
-    this.debris.burst(p.x, p.y, 0.6, 14, 0x555555, 4, 0.8);
+    this.sparks.burst(p.x, p.y, 0.7, 24, 0xffa040, 4.5, 0.55, -4);
+    this.debris.burst(p.x, p.y, 0.6, 12, 0x555555, 4, 0.75);
   }
 
   enemyExplode(e: Enemy, radBlocks: number, dmg: number) {
     for (const w of this.weapons) if (Math.hypot(w.x - e.x, w.y - e.y) < (radBlocks + 0.5) * this.B) this.hurtWeapon(w, dmg);
     const [r0, c0] = this.cellOf(e.x, e.y);
-    for (let r = r0 - 1; r <= r0 + 1; r++) for (let c = c0 - 1; c <= c0 + 1; c++) this.damageCell(r, c, 20, { kind: 'enemy' });
+    for (let r = r0 - 1; r <= r0 + 1; r++) for (let c = c0 - 1; c <= c0 + 1; c++) this.damageCell(r, c, 25, { kind: 'enemy' });
     const p = this.to3(e.x, e.y);
     this.fx.explosion(p.x, p.y, radBlocks, 0xff4a2a);
     this.killEnemy(e);
@@ -692,7 +1025,7 @@ export class Mine {
 
   private cellStatus(r: number, c: number): CellStatus | null {
     const b = this.block(r, c);
-    if (!b || b.type === 'bedrock') return null;
+    if (!b || this.isIndestructible(b.type)) return null;
     const i = this.idx(r, c);
     let s = this.status.get(i);
     if (!s) {
@@ -702,7 +1035,6 @@ export class Mine {
     return s;
   }
   isCellPoisoned(r: number, c: number): boolean {
-    if (!this.inB(r, c)) return false;
     const s = this.status.get(this.idx(r, c));
     return !!s && s.poisonUntil > this.time;
   }
@@ -738,9 +1070,15 @@ export class Mine {
   burnEnemy(e: Enemy, dps: number, dur: number) {
     e.burnDps = Math.max(e.burnUntil > this.time ? e.burnDps : 0, dps);
     e.burnUntil = Math.max(e.burnUntil, this.time + dur);
+    if (e instanceof SpiderQueen && e.shielded) e.breakCocoon();
   }
-  freezeEnemy(e: Enemy, dur: number) { e.frozenUntil = Math.max(e.frozenUntil, this.time + (e.isBoss ? dur * 0.4 : dur)); }
-  stunEnemy(e: Enemy, dur: number) { e.stunnedUntil = Math.max(e.stunnedUntil, this.time + (e.isBoss ? dur * 0.3 : dur)); }
+  freezeEnemy(e: Enemy, dur: number) {
+    e.frozenUntil = Math.max(e.frozenUntil, this.time + (e.isBoss ? dur * 0.4 : dur));
+    if (e instanceof Balrog && e.shielded) e.breakMoltenShield();
+  }
+  stunEnemy(e: Enemy, dur: number) {
+    e.stunnedUntil = Math.max(e.stunnedUntil, this.time + (e.isBoss ? dur * 0.3 : dur));
+  }
 
   enemiesInRadius(x: number, y: number, r: number): Enemy[] {
     return this.enemies.filter((e) => Math.hypot(e.x - x, e.y - y) <= r + e.size * this.B * 0.4);
@@ -764,7 +1102,7 @@ export class Mine {
       for (let rr = r0 - 1; rr <= r0 + R; rr++)
         for (let cc = Math.max(1, c0 - R); cc <= Math.min(this.cols - 2, c0 + R); cc++) {
           const b = this.block(rr, cc);
-          if (b && b.type !== 'bedrock') cells.push([rr, cc]);
+          if (b && !this.isIndestructible(b.type)) cells.push([rr, cc]);
         }
       cells.sort(() => Math.random() - 0.5);
       for (const [rr, cc] of cells) { if (out.length >= n) break; out.push({ kind: 'block', r: rr, c: cc }); }
@@ -775,15 +1113,22 @@ export class Mine {
   addProjectile(p: Projectile) {
     let mesh: THREE.Object3D;
     if (p.kind === 'meteor') {
-      const m = new THREE.SpriteMaterial({ map: Tex.glow(), color: new THREE.Color(3, 1.4, 0.4), blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+      const m = new THREE.SpriteMaterial({ map: Tex.glow(), color: new THREE.Color(1.8, 0.9, 0.3), blending: THREE.AdditiveBlending, depthWrite: false });
       mesh = new THREE.Sprite(m);
-      mesh.scale.setScalar(1.6);
+      mesh.scale.setScalar(1.5);
     } else {
-      const tex = p.kind === 'arrow' ? Tex.arrow() : p.kind === 'web' ? Tex.web() : p.kind === 'rock' ? Tex.rock() : Tex.iceShard();
-      const size = p.kind === 'rock' ? 0.9 : p.kind === 'web' ? 0.7 : 0.6;
+      const tex = p.kind === 'arrow' ? Tex.arrow()
+        : p.kind === 'web' ? Tex.web()
+          : p.kind === 'rock' ? Tex.rock()
+            : p.kind === 'fireball' ? Tex.fireball()
+              : Tex.iceShard();
+      const size = p.kind === 'rock' || p.kind === 'fireball' ? 0.9 : p.kind === 'web' ? 0.72 : 0.6;
       mesh = new THREE.Mesh(
         new THREE.PlaneGeometry(size, size),
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, color: p.kind === 'shard' ? new THREE.Color(1.6, 1.8, 2) : 0xffffff, toneMapped: p.kind !== 'shard' }),
+        new THREE.MeshBasicMaterial({
+          map: tex, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide,
+          color: p.kind === 'shard' ? new THREE.Color(1.3, 1.5, 1.7) : 0xffffff,
+        }),
       );
     }
     mesh.position.z = 0.9;
@@ -813,19 +1158,18 @@ export class Mine {
           }
         }
         if (alive && !p.passThrough && this.isSolid(r, c)) alive = false;
-        if (p.kind === 'rock' && this.isSolid(r, c) && p.y > this.deepestY + this.B * 2) alive = false;
+        if ((p.kind === 'rock' || p.kind === 'fireball') && this.isSolid(r, c) && p.y > this.deepestY + this.B * 2) alive = false;
       } else if (alive && p.from === 'weapon') {
         if (p.kind === 'meteor') {
           const pp = this.to3(p.x, p.y);
           this.sparks.emit(pp.x + (Math.random() - 0.5) * 0.3, pp.y, 0.8, 0, 1, 0, 0xffa040, 0.4, 0);
           const hitEnemy = this.enemies.find((e) => Math.hypot(e.x - p.x, e.y - p.y) < p.r + e.size * this.B * 0.5);
-          const solid = this.block(r, c) && this.block(r, c)!.type !== 'bedrock';
-          if (hitEnemy || solid || this.isSolid(r, c) && c > 0 && c < this.cols - 1) {
+          const blk = this.block(r, c);
+          if (hitEnemy || (blk && blk.type !== 'bedrock')) {
             this.explode(p.x, p.y, 2 + this.mods.aoeBonus, p.dmg, p.src!);
             alive = false;
           }
         } else {
-          // ice shard
           if (this.isSolid(r, c)) {
             const res = this.damageCell(r, c, p.dmg, p.src!);
             p.pierce = (p.pierce ?? 0) - 1;
@@ -852,7 +1196,11 @@ export class Mine {
       const pp = this.to3(p.x, p.y);
       p.mesh!.position.x = pp.x;
       p.mesh!.position.y = pp.y;
-      if (p.mesh instanceof THREE.Mesh) p.mesh.rotation.z = p.kind === 'rock' || p.kind === 'web' ? p.mesh.rotation.z + dt * 6 : Math.atan2(-p.vy, p.vx);
+      if (p.mesh instanceof THREE.Mesh) {
+        p.mesh.rotation.z = p.kind === 'rock' || p.kind === 'web' || p.kind === 'fireball'
+          ? p.mesh.rotation.z + dt * 6
+          : Math.atan2(-p.vy, p.vx);
+      }
       keep.push(p);
     }
     this.projectiles = keep;
@@ -862,14 +1210,15 @@ export class Mine {
   private updateStatus(dt: number) {
     for (const [i, s] of this.status) {
       const r = Math.floor(i / this.cols), c = i % this.cols;
-      const b = this.grid[i];
+      const b = this.grid.get(i);
       if (!b) { this.status.delete(i); continue; }
       const poisoned = s.poisonUntil > this.time;
       const burning = s.burnUntil > this.time;
       const frosted = s.frostUntil > this.time;
+      const pool = this.getPool(b.type);
       if (!poisoned && !burning && !frosted) {
-        this.typeMeshes.get(b.type)!.setColorAt(b.inst, this.tmpCol.setRGB(1, 1, 1));
-        this.typeMeshes.get(b.type)!.instanceColor!.needsUpdate = true;
+        pool.mesh.setColorAt(b.inst, this.tmpCol.setRGB(1, 1, 1));
+        pool.mesh.instanceColor!.needsUpdate = true;
         this.status.delete(i);
         continue;
       }
@@ -878,9 +1227,8 @@ export class Mine {
       else if (burning) this.tmpCol.setRGB(1.45 * flick, 0.85 * flick, 0.48);
       else if (poisoned) this.tmpCol.setRGB(0.68, 1.3, 0.55);
       else this.tmpCol.setRGB(0.68, 0.96, 1.32);
-      const im = this.typeMeshes.get(b.type)!;
-      im.setColorAt(b.inst, this.tmpCol);
-      im.instanceColor!.needsUpdate = true;
+      pool.mesh.setColorAt(b.inst, this.tmpCol);
+      pool.mesh.instanceColor!.needsUpdate = true;
       const dps = (poisoned ? s.poisonDps : 0) + (burning ? s.burnDps : 0);
       const p = this.to3(...this.center(r, c));
       if (burning && Math.random() < dt * 5) this.sparks.emit(p.x + (Math.random() - 0.5) * 0.8, p.y + 0.3, 0.6, 0, 1.2, 0, 0xff7a2a, 0.5, 0);
@@ -905,7 +1253,6 @@ export class Mine {
     const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     return Math.max(9.8 / (this.aspect * 2 * t), 11.5 / (2 * t));
   }
-  /** [halfWidth, halfHeight] in blocks at the z=0 plane */
   viewHalf(): [number, number] {
     const t = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const h = this.viewDist() * t;
@@ -922,9 +1269,9 @@ export class Mine {
   panCamera(deltaBlocks: number) {
     this.isManualCam = true;
     this.lockedWeaponUid = null;
-    const minY = -(this.rows - 3);
-    const maxY = 1.5;
-    this.camTargetY = Math.max(minY, Math.min(maxY, this.camTargetY + deltaBlocks));
+    const minY = -(this.generatedToRow - 1);
+    const maxY = -(this.minStoredRow + 2);
+    this.camTargetY = Math.max(minY, Math.min(Math.max(maxY, 1.5), this.camTargetY + deltaBlocks));
     this.camY = this.camTargetY;
   }
 
@@ -950,15 +1297,23 @@ export class Mine {
       let focusW: Weapon | null = null;
       if (this.lockedWeaponUid !== null) {
         focusW = this.weapons.find((w) => !w.dead && w.uid === this.lockedWeaponUid) ?? null;
-        if (!focusW) this.lockedWeaponUid = null; // auto-unlock if destroyed
+        if (!focusW) this.lockedWeaponUid = null;
       }
       if (!focusW) focusW = this.deepestWeapon();
       if (focusW) this.lastFocusY = focusW.y;
       else this.lastFocusY = this.deepestY;
-      // Place focus weapon slightly below screen centre so ~5.5~6.5 blocks of shaft are clearly visible ABOVE it!
       this.camTargetY = -this.lastFocusY / this.B + half * 0.16;
     }
     this.camY += (this.camTargetY - this.camY) * Math.min(1, dt * (this.isManualCam ? 12 : 3.2));
+    this.updateBackdropPosition(Math.floor(-this.camY));
+
+    // Keep side physics walls centred around current camera depth (infinite shaft support!)
+    const worldCamY = -this.camY * this.B;
+    if (Math.abs(this.leftWall.position.y - worldCamY) > 800) {
+      Matter.Body.setPosition(this.leftWall, { x: this.B / 2, y: worldCamY });
+      Matter.Body.setPosition(this.rightWall, { x: (this.cols - 0.5) * this.B, y: worldCamY });
+    }
+
     const d = this.viewDist();
     const pitch = THREE.MathUtils.degToRad(14);
     const sx = (Math.random() - 0.5) * this.fx.shake, sy = (Math.random() - 0.5) * this.fx.shake;
@@ -968,9 +1323,8 @@ export class Mine {
     this.camera.updateProjectionMatrix();
     (this.scene.fog as THREE.Fog).near = d - 2;
     (this.scene.fog as THREE.Fog).far = d + 30;
-    // darker deeper
-    const f = Math.min(1, Math.max(0, (-this.camY - BAL.airRows) / (this.level.depth + 6)));
-    this.hemi.intensity = 1.0 - f * 0.55;
+    const f = Math.min(1, Math.max(0, (-this.camY - BAL.airRows) / 140));
+    this.hemi.intensity = 1.0 - f * 0.52;
   }
 
   private updateLights() {
@@ -981,11 +1335,16 @@ export class Mine {
     for (const w of this.weapons) {
       const p = this.to3(w.x, w.y);
       const meta = weaponElementMeta(w.def.element);
-      reqs.push({ x: p.x, y: p.y, color: meta.color, intensity: w.ultReady >= 1 ? 3.2 : 2.2, dist: 5, prio: 3 });
+      reqs.push({
+        x: p.x, y: p.y,
+        color: this.overdriveActive ? 0xffb848 : meta.color,
+        intensity: this.overdriveActive ? 3.8 : w.ultReady >= 1 ? 3.2 : 2.2,
+        dist: 5.5, prio: 3,
+      });
     }
-    if (this.boss) {
+    if (this.boss && !this.boss.dead) {
       const p = this.to3(this.boss.x, this.boss.y);
-      reqs.push({ x: p.x, y: p.y + 1, color: 0xff7a20, intensity: 3.5, dist: 6, prio: 2 });
+      reqs.push({ x: p.x, y: p.y + 1, color: 0xff7a20, intensity: 3.8, dist: 6.5, prio: 2 });
     }
     const cy = this.camY;
     reqs.sort((a, b) => b.prio - a.prio || Math.abs(a.y - cy) - Math.abs(b.y - cy));
@@ -1011,7 +1370,7 @@ export class Mine {
       if (k >= this.cracks.length) break;
       const r = Math.floor(i / this.cols);
       if (r < top || r > bot) continue;
-      const b = this.grid[i];
+      const b = this.grid.get(i);
       if (!b) continue;
       const stage = Math.min(4, Math.floor((1 - b.hp / b.maxHp) * 5));
       const m = this.cracks[k++];
@@ -1029,7 +1388,6 @@ export class Mine {
     this.cb.onEnd(win, reason);
   }
 
-  /** Camera/lights only (used while paused or behind the title screen). */
   updateView(dt: number) {
     this.updateCamera(dt);
     this.updateLights();
@@ -1038,7 +1396,6 @@ export class Mine {
   // ------------------------------------------------------------------ main update
   update(dt: number) {
     if (this.ended) {
-      // keep effects animating on the end screen
       this.fx.update(dt);
       this.debris.update(dt);
       this.sparks.update(dt);
@@ -1046,7 +1403,17 @@ export class Mine {
       return;
     }
     this.time += dt;
-    this.timeLeft -= dt;
+    if (!this.isEndless) this.timeLeft -= dt;
+
+    if (this.isEndless) {
+      this.ensureEndlessChunks();
+      this.recycleTimer += dt;
+      if (this.recycleTimer >= 1.0) {
+        this.recycleTimer = 0;
+        this.recycleRowsAbove(Math.floor(this.lavaY / this.B) - 16);
+      }
+    }
+
     if (this.scheduled.length) {
       const due = this.scheduled.filter((s) => (s.t -= dt) <= 0);
       this.scheduled = this.scheduled.filter((s) => s.t > 0);
@@ -1063,6 +1430,7 @@ export class Mine {
       n++;
     }
     if (n === 4) this.acc = 0;
+
     for (const w of [...this.weapons]) {
       if (w.dead) continue;
       w.update(dt);
@@ -1081,11 +1449,19 @@ export class Mine {
       e.update(dt);
       if (e.y < this.lavaY) this.killEnemy(e);
     }
+    if (this.isEndless && (!this.boss || this.boss.dead)) {
+      this.boss = (this.enemies.find((o) => o.isBoss && !o.dead) as Boss | undefined) ?? null;
+    }
     this.updateProjectiles(dt);
     this.updateStatus(dt);
 
     // lava movement + approaching embers
-    if (this.time > BAL.lavaGrace) this.lavaY += this.level.lavaSpeed * this.mods.lavaSpeedMul * this.B * dt;
+    const rawLavaSpeed = this.isEndless
+      ? Math.min(BAL.endlessLavaMaxSpeed, BAL.endlessLavaBaseSpeed + this.gatesCleared * BAL.endlessLavaAccelPerGate)
+      : this.level.lavaSpeed;
+    if (this.time > BAL.lavaGrace) {
+      this.lavaY += rawLavaSpeed * this.mods.lavaSpeedMul * this.B * dt;
+    }
     const ly = -this.lavaY / this.B;
     this.lava.position.y = ly + 30;
     this.lavaCrust.position.y = ly;
@@ -1096,7 +1472,6 @@ export class Mine {
     if (Math.random() < dt * 10) {
       this.sparks.emit((Math.random() - 0.5) * (this.cols - 2), ly - 0.1, 0.95, (Math.random() - 0.5) * 0.8, -1.2 - Math.random() * 1.5, 0.2, 0xff9830, 1.0, -2.5);
     }
-    // Pre-warning falling embers from the top of the screen when lava is within 12 blocks!
     const heat = this.lavaHeat;
     if (heat > 0 && Math.random() < dt * (4 + heat * 18)) {
       const [, half] = this.viewHalf();
@@ -1114,10 +1489,9 @@ export class Mine {
       );
     }
 
-    // New lose rule: lava must overtake deepest point AND all weapons on the field must be destroyed
     if (this.lavaY >= this.deepestY && this.weapons.length === 0) {
       this.end(false, '岩漿吞沒了最深處且場上武器全滅');
-    } else if (this.timeLeft <= 0) {
+    } else if (!this.isEndless && this.timeLeft <= 0) {
       this.timeLeft = 0;
       this.end(false, '時間到');
     }
@@ -1130,13 +1504,30 @@ export class Mine {
     this.sparks.update(dt);
   }
 
-  /** Progress 0..1 towards the goal row */
+  get cameraCenterY(): number { return -this.camY * this.B; }
+  snapCamera() {
+    this.isManualCam = false;
+    this.lockedWeaponUid = null;
+    this.lastFocusY = this.deepestY;
+    this.camY = this.camTargetY = -this.deepestY / this.B + this.viewHalf()[1] * 0.16;
+    this.updateBackdropPosition(Math.floor(-this.camY));
+  }
+
   get progress(): number {
+    if (this.isEndless) {
+      const d = Math.max(0, this.deepestY / this.B - BAL.airRows);
+      return (d % BAL.endlessGateEvery) / BAL.endlessGateEvery;
+    }
     return Math.min(1, Math.max(0, (this.deepestY / this.B - BAL.airRows) / this.level.depth));
   }
-  get depthRows(): number { return Math.min(this.level.depth, Math.max(0, Math.floor(this.deepestY / this.B - BAL.airRows))); }
+  get depthRows(): number {
+    const raw = Math.max(0, Math.floor(this.deepestY / this.B - BAL.airRows));
+    return this.isEndless ? raw : Math.min(this.level.depth, raw);
+  }
+  get nextEndlessGateDepth(): number {
+    return (Math.floor(this.depthRows / BAL.endlessGateEvery) + 1) * BAL.endlessGateEvery;
+  }
   get lavaGap(): number { return (this.deepestY - this.lavaY) / this.B; }
-  /** 0..1 heat intensity when lava is active (or 3s before moving) and within `lavaWarnGap` blocks. */
   get lavaHeat(): number {
     if (this.time < BAL.lavaGrace - 3) return 0;
     const gap = Math.max(0, this.lavaGap);
@@ -1156,6 +1547,24 @@ export class Mine {
       }
     });
   }
+}
+
+const ENEMY_STATS_BASE_HP: Record<BossKind, number> = {
+  golem: 9500,
+  spider_queen: 26000,
+  balrog: 85000,
+};
+const ENEMY_STATS_NAME: Record<BossKind, string> = {
+  golem: '岩石巨像',
+  spider_queen: '劇毒蛛后',
+  balrog: '深淵炎魔',
+};
+
+function pickWeightedEnemy(weights: [EnemyKind, number][]): EnemyKind {
+  const tot = weights.reduce((s, [, w]) => s + w, 0);
+  let r = Math.random() * tot;
+  for (const [k, w] of weights) { if (r < w) return k; r -= w; }
+  return weights[0][0];
 }
 
 function pickOre(f: number): BlockType {

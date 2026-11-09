@@ -16,12 +16,13 @@
           <button id="help-btn" class="wiki-btn" type="button" aria-label="開啟遊戲 Wiki">📖 Wiki</button>
         </div>
         <div id="stamina-row" class="stamina-row">
-          <span id="stamina-lbl" class="stamina-lbl">⚡ 行動力 5/5</span>
+          <span id="stamina-lbl" class="stamina-lbl">⚡ 行動力 7/7</span>
           <div class="stamina-track-wrap">
-            <progress id="stamina-prog" class="stamina-prog" max="5" value="5" aria-labelledby="stamina-lbl"></progress>
+            <progress id="stamina-prog" class="stamina-prog" max="7" value="7" aria-labelledby="stamina-lbl"></progress>
             <div id="stamina-ticks" class="stamina-ticks" aria-hidden="true"></div>
           </div>
-          <span id="focus-badge" class="focus-badge" hidden>✨ 專注 +0%</span>
+          <span id="od-stacks" class="focus-badge" hidden>🔥 +25%</span>
+          <button id="od-btn" class="od-btn" type="button" title="提前進入散熱狂暴期，結束後一次補滿全部行動力">🔥 釋放狂暴</button>
         </div>
         <div id="combo" class="combo" aria-live="polite"></div>
       </div>
@@ -45,9 +46,14 @@
           <span id="lava-text" class="meter-text lava"></span>
           <span id="shield" class="shield" hidden>🛡 無敵</span>
         </div>
+        <div id="gate-row" class="meter-row gate" hidden>
+          <span class="meter-label">結界</span>
+          <span id="gate-text" class="meter-text gate-text"></span>
+        </div>
         <div id="boss-bar" class="meter-row boss" hidden>
-          <span class="meter-label">巨像</span>
+          <span id="boss-name" class="meter-label">首領</span>
           <div class="meter"><div id="boss-fill" class="meter-fill bossfill"></div></div>
+          <span id="boss-shield" class="meter-text boss-shield" hidden></span>
         </div>
         <div id="res" class="res-row" aria-label="資源"></div>
       </div>
@@ -58,15 +64,17 @@
 
   <dialog id="dlg-title" aria-labelledby="title-h" closedby="none">
     <h1 id="title-h" class="logo">Falling Weapons</h1>
-    <p class="subtitle">三消 × 落下武器・25 武器礦坑冒險</p>
+    <p class="subtitle">三消 × 落下武器・10 關首領闖關 ＆ 無盡深淵</p>
+    <div id="best-records" class="best-records"></div>
     <ul class="howto">
-      <li><b>行動力回氣制</b>：上限 <b>5 格</b>、每 <b>4 秒</b>回 1 格（沒消成功不扣格）；滿格未操作會蓄能<b>【專注加成 最高 +25%】</b>，打完一波就能放心欣賞右邊礦坑演出！</li>
-      <li><b>單步與累計鍛造</b>：同色消 <b>3</b> 低階｜<b>4~5</b> 初階｜<b>6~8</b> 高階｜<b>9+</b> 傳說｜全盤總消 <b>20+</b> 聖劍；每累計滿 <b>30 顆</b>生成累計武器並提升<b>元素共鳴（滿 Lv5 解鎖同名多把）</b>。</li>
-      <li><b>礦坑機關與鏡頭巡視</b>：引爆硬岩層中的<b>🧨 炸藥桶</b>破開通路、擊破<b>💎 水晶簇</b>全體回血；右側可用<b>滾輪／上下拖曳巡視礦坑</b>，或<b>點底部武器卡鎖定鏡頭</b>！</li>
+      <li><b>7 格爆發行動力 ＋ 8 秒散熱狂暴期</b>：每輪 <b>7 格</b>行動力（單步總消 <b>8+</b> 回 <b>+1</b>、<b>14+</b> 回 <b>+2</b>）；打完歸零或按<b>「🔥 釋放狂暴」</b>進入 <b>8 秒散熱狂暴觀賞期</b>，全武器攻速大招暴走增傷，讓你移開視線盡情欣賞右側礦坑，結束<b>一次補滿 7/7</b>！</li>
+      <li><b>守層結界房 ＆ 三大首領</b>：每隔一段深度設有<b>🔒 符文結界石</b>大廳，必須擊殺<b>👑 金冠守層菁英</b>與巡邏怪才能破除結界繼續下潛；善用元素剋制擊破<b>岩石巨像／劇毒蛛后／深淵炎魔</b>的專屬護盾！</li>
+      <li><b>單步與累計鍛造</b>：同色消 <b>3</b> 低階｜<b>4~5</b> 初階｜<b>6~8</b> 高階｜<b>9+</b> 傳說｜總消 <b>20+</b> 聖劍；每累計滿 <b>30 顆</b>出累計武器並升<b>共鳴（滿 Lv5 解鎖同名多把）</b>。</li>
     </ul>
     <div class="title-actions">
-      <form method="dialog">
-        <button class="btn primary" value="start" autofocus>開始冒險</button>
+      <form method="dialog" class="title-mode-form">
+        <button class="btn primary" value="campaign" autofocus>🏆 10 關闖關模式</button>
+        <button class="btn endless" value="endless">♾️ 無盡深淵模式</button>
       </form>
       <button id="title-wiki-btn" class="btn" type="button">📖 遊戲 Wiki（全 25 武器）</button>
     </div>
@@ -74,7 +82,7 @@
   </dialog>
 
   <dialog id="dlg-perk" aria-labelledby="perk-h" closedby="none">
-    <h2 id="perk-h">過關！選擇一項強化</h2>
+    <h2 id="perk-h">選擇一項強化</h2>
     <p id="perk-sub" class="subtitle"></p>
     <form method="dialog" id="perk-form" class="perk-list"></form>
   </dialog>
@@ -83,8 +91,9 @@
     <h2 id="result-h"></h2>
     <p id="result-reason" class="subtitle"></p>
     <div id="result-stats" class="stats"></div>
-    <form method="dialog">
-      <button class="btn primary" value="restart" autofocus>重新冒險</button>
+    <form method="dialog" class="result-actions">
+      <button class="btn primary" value="restart" autofocus>再挑戰一次</button>
+      <button class="btn" value="title">返回模式選擇</button>
     </form>
   </dialog>
 

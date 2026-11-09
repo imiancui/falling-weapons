@@ -147,6 +147,42 @@ function crystalBlockCanvas(): HTMLCanvasElement {
   return c;
 }
 
+function sealBlockCanvas(): HTMLCanvasElement {
+  const [c, ctx] = canvas(16, 16);
+  // dark runic obsidian base
+  for (let y = 0; y < 16; y++)
+    for (let x = 0; x < 16; x++) {
+      ctx.fillStyle = shade('#1a2232', 0.9 + rnd() * 0.2);
+      ctx.fillRect(x, y, 1, 1);
+    }
+  // glowing cyan-gold arcane seal border & rune diamond
+  ctx.fillStyle = '#3898c8';
+  ctx.fillRect(0, 0, 16, 2);
+  ctx.fillRect(0, 14, 16, 2);
+  ctx.fillStyle = '#78f0ff';
+  ctx.fillRect(1, 1, 14, 1);
+  ctx.fillRect(1, 14, 14, 1);
+  drawSprite(ctx, [
+    '................',
+    '................',
+    '................',
+    '.......GG.......',
+    '......GWWG......',
+    '.....GWCCWG.....',
+    '....GWCWWCWG....',
+    '...GWCWWWWCWG...',
+    '...GWCWWWWCWG...',
+    '....GWCWWCWG....',
+    '.....GWCCWG.....',
+    '......GWWG......',
+    '.......GG.......',
+    '................',
+    '................',
+    '................',
+  ], { G: '#d8a038', C: '#48d8f8', W: '#e8ffff' });
+  return c;
+}
+
 function blockCanvas(type: BlockType): HTMLCanvasElement {
   switch (type) {
     case 'dirt': return noiseBlock('#7a5232', 0.2, [{ color: '#5b3a20', n: 5, size: 1 }]);
@@ -154,6 +190,7 @@ function blockCanvas(type: BlockType): HTMLCanvasElement {
     case 'deepslate': return noiseBlock('#4a4a52', 0.16, [{ color: '#33333a', n: 7, size: 2 }]);
     case 'obsidian': return noiseBlock('#1c1228', 0.25, [{ color: '#5a2d8a', n: 5, size: 2 }]);
     case 'bedrock': return noiseBlock('#3a3a3a', 0.45, [{ color: '#151515', n: 9, size: 2 }]);
+    case 'seal': return sealBlockCanvas();
     case 'core': return noiseBlock('#5a1f8a', 0.3, [{ color: '#e07bff', n: 8, size: 2 }, { color: '#ffffff', n: 2, size: 1 }]);
     case 'barrel': return barrelBlockCanvas();
     case 'crystal': return crystalBlockCanvas();
@@ -780,6 +817,42 @@ const E_GOLEM = [
   '...oSSSo.oSSSo..',
   '...ooooo.ooooo..',
 ];
+const E_SPIDER_QUEEN = [
+  '.....o.oo.o.....',
+  '....oYoYYoYo....',
+  '...ooPPPPPPoo...',
+  '.oo.oPGGGGPPo.oo',
+  'oPoooPPPPPPPPooP',
+  'o.ooPPRRPRRPoo.o',
+  '..o.oPPWWPPo.o..',
+  '.oo..oooooo..oo.',
+  'oPooooPPPPooooPo',
+  'o..oPPGGGGPPo..o',
+  '..ooPGGLLGGPoo..',
+  '.oP.oPGGGGPo.Po.',
+  'o...ooPPPPoo...o',
+  '....o..oo..o....',
+  '...o........o...',
+  '................',
+];
+const E_BALROG = [
+  '.oo..........oo.',
+  'oYYo..oooo..oYYo',
+  'oYLYooDDDDooYLYo',
+  '.oYYoDRRRRDoYYo.',
+  '..ooDDWLLWDDoo..',
+  '.oo.oDDDDDDo.oo.',
+  'oRRo.oDRRDo.oRRo',
+  'oRLRooDRRDooRLRo',
+  'oRRDDDDYYDDDDRRo',
+  'oR.oDDYYYYDDo.Ro',
+  'o..oDDRRRRDDo..o',
+  '...oDDooooDDo...',
+  '...oDDo..oDDo...',
+  '..oDDDo..oDDDo..',
+  '..ooooo..ooooo..',
+  '................',
+];
 
 const ENEMY_ART: Record<string, { rows: string[]; pal: Palette }> = {
   zombie: { rows: E_ZOMBIE, pal: { o: '#101010', Y: '#e0b030', L: '#fffbd0', G: '#5a9a4a', k: '#1a2a1a', B: '#3a5aa0', P: '#4a3a6a' } },
@@ -787,6 +860,8 @@ const ENEMY_ART: Record<string, { rows: string[]; pal: Palette }> = {
   mushroom: { rows: E_MUSHROOM, pal: { o: '#200808', R: '#e02a2a', W: '#fff0e0', S: '#f0d8b0', k: '#3a2010' } },
   spider: { rows: E_SPIDER, pal: { o: '#100808', D: '#3a2a2a', R: '#ff3030' } },
   golem: { rows: E_GOLEM, pal: { o: '#101010', S: '#7a7a80', L: '#b0b0b8', R: '#ff7a20', k: '#2a2a2a', M: '#4a8a3a' } },
+  spider_queen: { rows: E_SPIDER_QUEEN, pal: { o: '#120818', P: '#5a2878', G: '#4ad848', L: '#d8ffb0', R: '#ff3050', W: '#f4e8ff', Y: '#ffd848' } },
+  balrog: { rows: E_BALROG, pal: { o: '#140606', D: '#2e1c24', R: '#e83c1c', L: '#ff9828', Y: '#ffe066', W: '#ffffff' } },
 };
 
 // ---------------------------------------------------------------- match-3 tiles
@@ -1024,6 +1099,18 @@ function iceShardCanvas(): HTMLCanvasElement {
     '..........oo....', '..ooooooooLLo...', '.oLLLLMMMMMMMo..', '..ooooooooMMo...', '..........oo....',
   ], { o: '#1a4a6a', L: '#f0ffff', M: '#7adcff' });
 }
+function fireballCanvas(): HTMLCanvasElement {
+  return sprite([
+    '................', '................', '......oooo......', '....ooRRRRoo....', '...oRRLLLLRRo...',
+    '..oRLLYYYYLLRo..', '..oRLYYWWYYLRo..', '..oRLLYYYYLLRo..', '...oRRLLLLRRo...', '....ooRRRRoo....', '......oooo......',
+  ], { o: '#380804', R: '#e83818', L: '#ff9028', Y: '#ffe868', W: '#ffffff' });
+}
+function crownCanvas(): HTMLCanvasElement {
+  return sprite([
+    '................', '................', '................', '................',
+    '..o....oo....o..', '.oYo..oYYo..oYo.', '.oYYooYYYYooYYo.', '.oYYYYRYYRYYYYo.', '.oYYYYYYYYYYYYo.', '..oooooooooooo..',
+  ], { o: '#2a1804', Y: '#ffd848', R: '#ff3848' });
+}
 
 // ---------------------------------------------------------------- cache
 const cache = new Map<string, THREE.Texture>();
@@ -1061,6 +1148,8 @@ export const Tex = {
   arrow: () => cached('arrow', arrowCanvas),
   rock: () => cached('rock', rockCanvas),
   iceShard: () => cached('iceshard', iceShardCanvas),
+  fireball: () => cached('fireball', fireballCanvas),
+  crown: () => cached('crown', crownCanvas),
 };
 
 /** Data-URL versions for DOM UI (weapon cards, tile icons in HUD, Wiki tables). */

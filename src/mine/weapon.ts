@@ -4,7 +4,7 @@ import { BAL, RESONANCE, weaponElementMeta } from '../data/config';
 import { WEAPONS, type WeaponDef, type WeaponId } from '../data/weapons';
 import { Tex } from '../gfx/pixel';
 import type { Mine, DmgSrc, Target } from './world';
-import type { Enemy } from './enemy';
+import { Golem, type Enemy } from './enemy';
 
 const barGeo = new THREE.PlaneGeometry(1, 0.09);
 let nextWeaponId = 1;
@@ -110,9 +110,15 @@ export class Weapon {
     const per = this.def.id === 'excalibur' ? BAL.holyDupBoost : BAL.dupBoost;
     return 1 + this.dupStacks * per;
   }
-  get dmg() { return this.def.dmg * this.power * this.dupMul * this.m.mods.dmgMul; }
+  get dmg() {
+    const extraReso = Math.max(0, this.reso - BAL.resonanceMaxLv);
+    const endlessMul = 1 + extraReso * BAL.endlessResoExtraBonus;
+    const odMul = this.m.overdriveActive ? this.m.overdriveDmgMul : 1;
+    return this.def.dmg * this.power * this.dupMul * this.m.mods.dmgMul * endlessMul * odMul;
+  }
   get hitInterval() {
-    return this.def.id === 'drill' || this.def.id === 'katar' ? BAL.hitCooldown * 0.5 : BAL.hitCooldown;
+    const base = this.def.id === 'drill' || this.def.id === 'katar' ? BAL.hitCooldown * 0.5 : BAL.hitCooldown;
+    return this.m.overdriveActive ? base * BAL.overdriveHitCdMul : base;
   }
   get reso(): number {
     if (this.def.element === 'holy') {
@@ -159,8 +165,9 @@ export class Weapon {
   /** Render + per-frame logic (passives, ult timers, lifespan drain). */
   update(dt: number) {
     const m = this.m;
+    const odRate = m.overdriveActive ? 1.6 : 1;
     this.hitCd -= dt;
-    this.icd -= dt;
+    this.icd -= dt * odRate;
 
     // Lifespan decay for Excalibur (ignores invulnerability as it's its natural timer, hearts still heal it)
     if (this.def.lifespanDecay) {
@@ -197,14 +204,19 @@ export class Weapon {
       Matter.Body.setVelocity(b, { x: b.velocity.x * 0.9, y: Math.max(b.velocity.y, 2.6) });
     }
 
-    // Hop when idle (e.g. lying on bedrock or the boss floor)
+    // Hop when idle (faster & fiercer horizontal pursuit during Overdrive!)
     const speed = Math.hypot(b.velocity.x, b.velocity.y);
-    if (m.time - this.lastHit > BAL.hopIdle && speed < 2) {
+    const hopWait = m.overdriveActive ? BAL.hopIdle * 0.52 : BAL.hopIdle;
+    if (m.time - this.lastHit > hopWait && speed < (m.overdriveActive ? 2.8 : 2)) {
       this.lastHit = m.time;
       const e = m.nearestEnemy(this.x, this.y, 9 * m.B);
       const dx = e ? (e.x - this.x) / m.B : (Math.random() - 0.5) * 4;
-      Matter.Body.setVelocity(b, { x: Math.max(-4.5, Math.min(4.5, dx * 1.1)), y: this.def.id === 'core_orb' ? -3.2 : -6.5 });
-      Matter.Body.setAngularVelocity(b, (Math.random() - 0.5) * 0.4);
+      const vxCap = m.overdriveActive ? 6.0 : 4.5;
+      Matter.Body.setVelocity(b, {
+        x: Math.max(-vxCap, Math.min(vxCap, dx * (m.overdriveActive ? 1.45 : 1.1))),
+        y: this.def.id === 'core_orb' ? -3.4 : m.overdriveActive ? -7.4 : -6.5,
+      });
+      Matter.Body.setAngularVelocity(b, (Math.random() - 0.5) * (m.overdriveActive ? 0.65 : 0.4));
     }
     tick(m, this, dt);
 
@@ -213,6 +225,9 @@ export class Weapon {
     const cx = b.position.x + this.offset.x * cos - this.offset.y * sin;
     const cy = b.position.y + this.offset.x * sin + this.offset.y * cos;
     const p = m.to3(cx, cy);
+    if (m.overdriveActive && Math.random() < dt * 8) {
+      m.emitOverdriveSpark(p.x, p.y);
+    }
     this.group.position.x = p.x;
     this.group.position.y = p.y;
     this.sprite.rotation.z = -b.angle;
@@ -263,6 +278,7 @@ function poisonTarget(m: Mine, w: Weapon, t: Target, stacks: number, plague: boo
 
 export function onHit(m: Mine, w: Weapon, t: Target) {
   const d = w.dmg;
+  const chg = m.overdriveActive ? BAL.overdriveUltRateMul : 1;
   const [tr, tc] = targetCell(m, t);
   const p = m.to3(...m.center(tr, tc));
   switch (w.def.id) {
@@ -298,7 +314,7 @@ export function onHit(m: Mine, w: Weapon, t: Target) {
       const r = axeRadius(m, w);
       m.damageSquare(tr, tc, r, d * 0.45, w.src('hit'));
       m.fx.rect(p.x, p.y, r * 2 + 1, r * 2 + 1, 0xd8a060, 0.2, 0.9);
-      w.charge++;
+      w.charge += chg;
       break;
     }
     case 'blade': {
@@ -310,7 +326,7 @@ export function onHit(m: Mine, w: Weapon, t: Target) {
     }
     case 'dagger':
       poisonTarget(m, w, t, 1, false);
-      w.charge++;
+      w.charge += chg;
       break;
     case 'sword': {
       const dps = d * 0.5 * RESONANCE.burnMul(w.reso);
@@ -347,7 +363,7 @@ export function onHit(m: Mine, w: Weapon, t: Target) {
       w.icd = 0.7;
       m.explode(w.x, w.y + m.B * 0.4, 1.6 + m.mods.aoeBonus, d, w.src('explosion'));
       Matter.Body.setVelocity(w.body, { x: w.body.velocity.x + (Math.random() - 0.5) * 3, y: -5 });
-      w.charge++;
+      w.charge += chg;
       break;
     case 'boomerang':
       if (w.icd > 0) break;
@@ -357,7 +373,7 @@ export function onHit(m: Mine, w: Weapon, t: Target) {
         const sp = 8 * m.B;
         m.addProjectile({ kind: 'shard', x: w.x, y: w.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, r: 10, life: 0.55, from: 'weapon', dmg: d * 0.6, src: w.src('ice'), pierce: 2 });
       }
-      w.charge++;
+      w.charge += chg;
       break;
 
     // -------- D. 累計武器（每滿 30 個同色） --------
@@ -365,7 +381,7 @@ export function onHit(m: Mine, w: Weapon, t: Target) {
       if (t.kind === 'block') {
         m.damageCell(tr + 1, tc, d * 0.55, w.src('hit'));
       }
-      w.charge++;
+      w.charge += chg;
       break;
     case 'core_orb':
       break;
@@ -380,7 +396,7 @@ export function onHit(m: Mine, w: Weapon, t: Target) {
         m.fx.ring(p.x, p.y, 0.85, 0xffe066, 0.22);
       }
       poisonTarget(m, w, t, 1, false);
-      w.charge++;
+      w.charge += chg;
       break;
     }
     case 'flameblade': {
@@ -435,7 +451,7 @@ export function onHit(m: Mine, w: Weapon, t: Target) {
       break;
     case 'hydra':
       poisonTarget(m, w, t, 3, true, 10, true);
-      w.charge++;
+      w.charge += chg;
       break;
     case 'dragon': {
       if (w.icd > 0) break;
@@ -525,15 +541,17 @@ function columnStrike(m: Mine, w: Weapon, col: number, fromRow: number, rows: nu
 
 export function tick(m: Mine, w: Weapon, dt: number) {
   const d = w.dmg;
+  const ultRate = m.overdriveActive ? BAL.overdriveUltRateMul : 1;
+  const pasRate = m.overdriveActive ? 1.6 : 1;
   const [wr, wc] = m.cellOf(w.x, w.y);
   if (w.def.id === 'halberd') {
-    w.passiveT += dt;
+    w.passiveT += dt * pasRate;
     if (w.passiveT >= 3) {
       w.passiveT = 0;
-      w.charge += columnStrike(m, w, Math.max(1, Math.min(m.cols - 2, wc)), wr + 1, 8, d * 1.2);
+      w.charge += columnStrike(m, w, Math.max(1, Math.min(m.cols - 2, wc)), wr + 1, 8, d * 1.2) * ultRate;
     }
   } else if (w.def.id === 'mjolnir') {
-    w.passiveT += dt;
+    w.passiveT += dt * pasRate;
     if (w.passiveT >= 1.5) {
       w.passiveT = 0;
       const baseCol = Math.max(1, Math.min(m.cols - 2, wc));
@@ -542,7 +560,7 @@ export function tick(m: Mine, w: Weapon, dt: number) {
       for (const c of cols) columnStrike(m, w, c, wr, 9, d * 0.95);
     }
   } else if (w.def.id === 'core_orb') {
-    w.passiveT += dt;
+    w.passiveT += dt * pasRate;
     if (w.passiveT >= 0.5) {
       w.passiveT = 0;
       zap(m, w, 2 + Math.floor(RESONANCE.chainAdd(w.reso) / 2), 4.5, d * 0.65);
@@ -563,7 +581,7 @@ export function tick(m: Mine, w: Weapon, dt: number) {
   const u = w.def.ult;
   if (!u) return;
   if (u.type === 'cd') {
-    w.ultTimer -= dt;
+    w.ultTimer -= dt * ultRate;
     if (w.ultTimer <= 0) {
       w.ultTimer = u.value * m.mods.ultMul;
       castUlt(m, w);
@@ -678,7 +696,7 @@ export function castUlt(m: Mine, w: Weapon) {
     case 'core_orb': {
       m.fx.ring(p.x, p.y, 4.5, 0x80e8ff, 0.5);
       zap(m, w, 12 + m.mods.thunderChainBonus, 7, d * 1.6);
-      if (m.boss && m.boss.shelled && Math.hypot(m.boss.x - w.x, m.boss.y - w.y) < 9 * m.B) m.boss.breakShell();
+      if (m.boss instanceof Golem && m.boss.shielded && Math.hypot(m.boss.x - w.x, m.boss.y - w.y) < 9 * m.B) m.boss.breakShell();
       break;
     }
     case 'katar': {
