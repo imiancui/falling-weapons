@@ -1,10 +1,14 @@
 import './style.css';
-import { BAL, ELEMENTS, ELEMENT_INFO, HEART, LEVELS, ORE_ICON, PERKS, defaultMods, type Element, type Mods } from './data/config';
-import { WEAPONS, WEAPON_BY_ELEMENT, type WeaponId } from './data/weapons';
+import {
+  BAL, ELEMENTS, ELEMENT_INFO, HEART, HOLY_INFO, LEVELS, ORE_ICON, PERKS,
+  defaultMods, weaponElementMeta, type Element, type Mods,
+} from './data/config';
+import { ELEMENT_WEAPONS, WEAPONS, WEAPON_LIST, type WeaponId } from './data/weapons';
 import { spriteUrl } from './gfx/pixel';
 import { Match3 } from './match3/board';
 import { Mine } from './mine/world';
 import { MineRenderer } from './mine/renderer';
+import { initWiki } from './ui/wiki';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -19,6 +23,7 @@ const run = {
   weaponsMade: 0,
 };
 let resonance: Record<Element, number> = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
+let cumGauge: Record<Element, number> = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
 let mine: Mine | null = null;
 
 const mineRenderer = new MineRenderer($('mine-pane'));
@@ -46,8 +51,9 @@ function startRun() {
 function startLevel(i: number) {
   run.level = i;
   mine?.dispose();
-  const start = run.mods.resonanceStart;
-  resonance = { earth: start, thunder: start, poison: start, fire: start, ice: start };
+  const startLv = run.mods.resonanceStartLv;
+  resonance = { earth: startLv, thunder: startLv, poison: startLv, fire: startLv, ice: startLv };
+  cumGauge = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
   mine = new Mine(levelDef(i), run.mods, resonance, {
     onEnd: (win, reason) => onLevelEnd(win, reason),
     onResource: (ore) => { run.resources[ore] = (run.resources[ore] ?? 0) + 1; },
@@ -56,46 +62,101 @@ function startLevel(i: number) {
   board.enabled = true;
   $('level-name').textContent = LEVELS[i].name;
   $('boss-bar').hidden = LEVELS[i].goal !== 'boss';
+  $('lava-heat').style.opacity = '0';
   $('combo').replaceChildren();
   state = 'play';
   if (BAL.starterWeapon) {
     const el = ELEMENTS[Math.floor(Math.random() * ELEMENTS.length)];
-    spawn(WEAPON_BY_ELEMENT[el][0], 1, '開局贈送');
+    acquire(ELEMENT_WEAPONS[el].t1, 1, '開局贈送');
   }
   renderReso();
 }
 
-function spawn(id: WeaponId, power: number, note = '') {
+function acquire(id: WeaponId, power: number, note = '', forceSpawn = false) {
   if (!mine) return;
-  mine.spawnWeapon(id, power);
-  run.weaponsMade++;
+  const res = mine.acquireWeapon(id, power, forceSpawn);
   const def = WEAPONS[id];
-  toast(`${def.tier === 2 ? '★ ' : ''}${def.name}${power > 1.001 ? ` ×${power.toFixed(2)}` : ''}${note ? `（${note}）` : ''}`, ELEMENT_INFO[def.element].css, spriteUrl('weapon', id));
+  const meta = weaponElementMeta(def.element);
+  if (res.mode === 'spawned') {
+    run.weaponsMade++;
+    const badge = def.category === 'leg' || def.category === 'holy' ? '✦ '
+      : def.category === 't2' || def.category === 'cum' ? '★ ' : '';
+    toast(
+      `${badge}${def.name}${power > 1.01 ? ` ×${power.toFixed(2)}` : ''}${note ? `（${note}）` : ''}`,
+      meta.css,
+      spriteUrl('weapon', id),
+    );
+  } else {
+    toast(
+      `${def.name} 強化 +${Math.round((res.weapon.dupMul - 1) * 100)}% 並回滿血！`,
+      meta.css,
+      spriteUrl('weapon', id),
+    );
+  }
 }
 
 function onMoveEnd(counts: number[]) {
   if (state !== 'play' || !mine) return;
-  const cap = BAL.resonanceCap + run.mods.resonanceCapBonus;
+  const t2 = run.mods.t2Threshold;
+  const t3 = run.mods.t3Threshold;
+  const cumReq = run.mods.cumThreshold;
+  const totalAll = counts.reduce((s, x) => s + x, 0);
+
   ELEMENTS.forEach((el, i) => {
     const n = counts[i];
     if (n <= 0) return;
-    const [t1, t2] = WEAPON_BY_ELEMENT[el];
-    if (n >= run.mods.t2Threshold) spawn(t2, 1 + BAL.powerPerExtra * (n - run.mods.t2Threshold));
-    else if (n >= BAL.t1Threshold) spawn(t1, 1 + BAL.powerPerExtra * (n - BAL.t1Threshold));
-    else {
-      const before = resonance[el];
-      resonance[el] = Math.min(cap, resonance[el] + n);
-      if (resonance[el] > before) toast(`${ELEMENT_INFO[el].name}共鳴 +${resonance[el] - before}（${ELEMENT_INFO[el].resonance}）`, ELEMENT_INFO[el].css, spriteUrl('tile', i));
+    const map = ELEMENT_WEAPONS[el];
+
+    // 1. Single-move weapon thresholds (3 / 4~5 / 6~8 / 9+)
+    if (n >= t3) {
+      if (map.leg) {
+        acquire(map.leg, 1 + BAL.powerPerExtra * (n - t3));
+      } else {
+        // Ice 9+ -> supercharged Boomerang
+        acquire(map.t2, 1.35 + BAL.powerPerExtra * (n - t3), '超強化');
+      }
+    } else if (n >= t2) {
+      acquire(map.t2, 1 + BAL.powerPerExtra * (n - t2));
+    } else if (n >= BAL.t1Threshold) {
+      acquire(map.t1, 1 + BAL.powerPerExtra * (n - BAL.t1Threshold));
+    } else if (n >= BAL.t0Threshold) {
+      acquire(map.low, 1);
+    }
+
+    // 2. Merged Cumulative + Resonance gauge (every tile counts!)
+    cumGauge[el] += n;
+    while (cumGauge[el] >= cumReq) {
+      cumGauge[el] -= cumReq;
+      const prevLv = resonance[el];
+      resonance[el] = Math.min(BAL.resonanceMaxLv, resonance[el] + 1);
+      acquire(
+        map.cum,
+        1 + resonance[el] * 0.08,
+        resonance[el] > prevLv ? `共鳴 Lv${resonance[el]}` : '累計達成',
+      );
+      if (prevLv < BAL.resonanceMaxLv && resonance[el] === BAL.resonanceMaxLv) {
+        toast(`🎉 ${ELEMENT_INFO[el].name}共鳴滿級 Lv5！解鎖同名武器多把並存！`, ELEMENT_INFO[el].css, spriteUrl('tile', i));
+      }
     }
   });
+
+  // 3. Holy Sword: total tiles cleared across all colours (incl. hearts) >= 20 in one move
+  if (totalAll >= BAL.holyTotalThreshold) {
+    acquire('excalibur', 1 + BAL.powerPerExtra * (totalAll - BAL.holyTotalThreshold), `總消 ${totalAll}`);
+  }
+
+  // 4. Hearts: heal all active weapons (+ 3s shield at 7+)
   const hearts = counts[HEART];
   if (hearts > 0) {
     mine.healAll(BAL.heartHealPct * hearts * run.mods.healMul);
     if (hearts >= BAL.heartShieldCount) {
       mine.shield(BAL.heartShieldSec);
       toast(`愛心 ×${hearts}：全體回血 + ${BAL.heartShieldSec} 秒無敵！`, '#ff8ab8', spriteUrl('tile', HEART));
-    } else if (mine.weapons.length) toast(`愛心 ×${hearts}：全體回血`, '#ff8ab8', spriteUrl('tile', HEART));
+    } else if (mine.weapons.length) {
+      toast(`愛心 ×${hearts}：全體回血`, '#ff8ab8', spriteUrl('tile', HEART));
+    }
   }
+
   renderReso();
   setTimeout(() => { if (!board.busy) $('combo').replaceChildren(); }, 900);
 }
@@ -118,7 +179,7 @@ function guardDialog(d: HTMLDialogElement) {
 const dlgTitle = $<HTMLDialogElement>('dlg-title');
 const dlgPerk = $<HTMLDialogElement>('dlg-perk');
 const dlgResult = $<HTMLDialogElement>('dlg-result');
-const dlgHelp = $<HTMLDialogElement>('dlg-help');
+const dlgWiki = $<HTMLDialogElement>('dlg-wiki');
 [dlgTitle, dlgPerk, dlgResult].forEach(guardDialog);
 
 dlgTitle.addEventListener('close', () => {
@@ -163,7 +224,7 @@ function showResult(win: boolean, reason: string) {
   $('result-stats').innerHTML = `
     <span>到達關卡</span><b>${LEVELS[run.level].name}</b>
     <span>本關深度</span><b>${mine ? mine.depthRows : 0} / ${LEVELS[run.level].depth}</b>
-    <span>生成武器</span><b>${run.weaponsMade} 把</b>
+    <span>投入武器</span><b>${run.weaponsMade} 把</b>
     <span>收集資源</span><b>${res}</b>
     <span>本輪強化</span><b>${perks}</b>`;
   dlgResult.showModal();
@@ -173,16 +234,25 @@ dlgResult.addEventListener('close', () => {
   startRun();
 });
 
-let stateBeforeHelp: State = 'play';
-$('help-btn').addEventListener('click', () => {
-  if (dlgHelp.open) return;
-  stateBeforeHelp = state;
-  if (state === 'play') state = 'paused';
-  dlgHelp.showModal();
-});
-dlgHelp.addEventListener('close', () => {
-  dlgHelp.returnValue = '';
-  if (state === 'paused') state = stateBeforeHelp;
+let stateBeforeWiki: State = 'play';
+function openWiki() {
+  if (dlgWiki.open) return;
+  stateBeforeWiki = state;
+  if (state === 'play') {
+    state = 'paused';
+    board.enabled = false;
+  }
+  dlgWiki.showModal();
+}
+$('help-btn').addEventListener('click', openWiki);
+$('title-wiki-btn').addEventListener('click', openWiki);
+
+dlgWiki.addEventListener('close', () => {
+  dlgWiki.returnValue = '';
+  if (state === 'paused') {
+    state = stateBeforeWiki;
+    if (state === 'play') board.enabled = true;
+  }
 });
 // light-dismiss fallback where `closedby` is unsupported
 if (!('closedBy' in HTMLDialogElement.prototype)) {
@@ -191,38 +261,25 @@ if (!('closedBy' in HTMLDialogElement.prototype)) {
     return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
   };
   let pressedOutside = false;
-  dlgHelp.addEventListener('pointerdown', (e) => { pressedOutside = outside(e, dlgHelp); });
-  dlgHelp.addEventListener('pointerup', (e) => { if (pressedOutside && outside(e, dlgHelp)) dlgHelp.close(); });
-}
-
-function buildHelp() {
-  const rows = ELEMENTS.map((el) => {
-    const [a, b] = WEAPON_BY_ELEMENT[el];
-    return [a, b].map((id) => {
-      const w = WEAPONS[id];
-      return `<tr style="color:${ELEMENT_INFO[el].css}"><td><img src="${spriteUrl('weapon', id)}" alt=""></td>
-        <td><b>${w.name}</b><br><small>${ELEMENT_INFO[el].name}・${w.tier === 1 ? '初階 4~6' : '高階 7+'}</small></td>
-        <td style="color:var(--text)">${w.passive}<br><small style="color:var(--muted)">大招【${w.ult.name}】${w.ult.type === 'cd' ? `冷卻 ${w.ult.value} 秒` : `集氣 ${w.ult.value} ${w.ult.unit}`}</small></td></tr>`;
-    }).join('');
-  }).join('');
-  $('help-body').innerHTML = `
-    <table><thead><tr><th></th><th>武器</th><th>效果</th></tr></thead><tbody>${rows}</tbody></table>
-    <h3>特殊方塊</h3>
-    <p>直線 4 連 → 直線炸彈（清整排／整列）；L/T 形 → 範圍炸彈（3×3）；5 連 → 彩虹球（與任一色交換，清除全盤該色）。兩個特殊方塊互換會產生組合技。</p>
-    <h3>怪物</h3>
-    <p>殭屍礦工（近戰）、骷髏弓手（射箭）、爆裂菇（靠近自爆）、洞穴蜘蛛（吐網減速）。第 3 關底部是岩石巨像：落石雨、召喚小怪、岩殼（雷電與爆炸可破）。</p>`;
+  dlgWiki.addEventListener('pointerdown', (e) => { pressedOutside = outside(e, dlgWiki); });
+  dlgWiki.addEventListener('pointerup', (e) => { if (pressedOutside && outside(e, dlgWiki)) dlgWiki.close(); });
 }
 
 // ------------------------------------------------------------------ HUD
 function renderReso() {
-  const cap = BAL.resonanceCap + run.mods.resonanceCapBonus;
+  const req = run.mods.cumThreshold;
   $('reso').replaceChildren(
     ...ELEMENTS.map((el, i) => {
+      const lv = resonance[el];
+      const g = cumGauge[el];
+      const maxed = lv >= BAL.resonanceMaxLv;
       const li = document.createElement('li');
-      li.className = 'reso-chip';
+      li.className = `reso-chip${maxed ? ' maxed' : ''}`;
       li.style.color = ELEMENT_INFO[el].css;
-      li.title = `${ELEMENT_INFO[el].name}共鳴：提升${ELEMENT_INFO[el].resonance}`;
-      li.innerHTML = `<img src="${spriteUrl('tile', i)}" alt="${ELEMENT_INFO[el].name}"><span class="lv">${resonance[el]}/${cap}</span><span class="bar"><i style="width:${(resonance[el] / cap) * 100}%"></i></span>`;
+      li.innerHTML = `
+        <img src="${spriteUrl('tile', i)}" alt="${ELEMENT_INFO[el].name}">
+        <span class="lv"><b>${maxed ? '滿級' : `Lv${lv}`}</b><em>${g}/${req}</em></span>
+        <span class="bar"><i style="width:${(g / req) * 100}%"></i></span>`;
       return li;
     }),
   );
@@ -230,16 +287,30 @@ function renderReso() {
 
 function renderCombo(counts: number[]) {
   const t2 = run.mods.t2Threshold;
+  const t3 = run.mods.t3Threshold;
+  const totalAll = counts.reduce((s, x) => s + x, 0);
   const spans = counts.map((n, i) => {
     if (n <= 0) return null;
     const s = document.createElement('span');
     const isHeart = i === HEART;
     s.style.color = isHeart ? '#ff8ab8' : ELEMENT_INFO[ELEMENTS[i]].css;
     s.textContent = `${isHeart ? '♥' : ELEMENT_INFO[ELEMENTS[i]].name} ${n}`;
-    if (!isHeart && n >= t2) s.className = 't2';
-    else if (!isHeart && n >= BAL.t1Threshold) s.className = 't1';
+    if (!isHeart) {
+      if (n >= t3) s.className = 't3';
+      else if (n >= t2) s.className = 't2';
+      else if (n >= BAL.t1Threshold) s.className = 't1';
+      else if (n >= BAL.t0Threshold) s.className = 't0';
+    }
     return s;
   }).filter((s): s is HTMLSpanElement => !!s);
+
+  if (totalAll >= 12) {
+    const tot = document.createElement('span');
+    tot.style.color = HOLY_INFO.css;
+    tot.className = totalAll >= BAL.holyTotalThreshold ? 't3' : 't1';
+    tot.textContent = `✨ 總消 ${totalAll}/${BAL.holyTotalThreshold}`;
+    spans.push(tot);
+  }
   $('combo').replaceChildren(...spans);
 }
 
@@ -272,10 +343,27 @@ function updateHud(dt: number) {
   timer.classList.toggle('low', t <= 30);
   $('depth-fill').style.width = `${mine.progress * 100}%`;
   $('depth-text').textContent = `${mine.depthRows} / ${mine.level.depth}`;
+
   const gap = mine.lavaGap;
   const lava = $('lava-text');
-  lava.textContent = mine.time < BAL.lavaGrace ? `${Math.ceil(BAL.lavaGrace - mine.time)} 秒後開始下降` : `距離最深點 ${gap.toFixed(1)} 格`;
-  lava.classList.toggle('danger', mine.time >= BAL.lavaGrace && gap < 4);
+  if (mine.time < BAL.lavaGrace) {
+    lava.textContent = `${Math.ceil(BAL.lavaGrace - mine.time)} 秒後開始下降`;
+    lava.className = 'meter-text lava';
+  } else if (gap <= 0) {
+    lava.textContent = `🔥 已淹至最深處！保護武器往下衝！`;
+    lava.className = 'meter-text lava danger';
+  } else if (gap < 6) {
+    lava.textContent = `⚠️ 岩漿逼近 ${gap.toFixed(1)} 格！`;
+    lava.className = 'meter-text lava danger';
+  } else if (gap < BAL.lavaWarnGap) {
+    lava.textContent = `🔥 距離最深點 ${gap.toFixed(1)} 格`;
+    lava.className = 'meter-text lava warn';
+  } else {
+    lava.textContent = `距離最深點 ${gap.toFixed(1)} 格`;
+    lava.className = 'meter-text lava';
+  }
+  $('lava-heat').style.opacity = (mine.lavaHeat * 0.9).toFixed(2);
+
   $('shield').hidden = !(mine.time < mine.shieldUntil);
   if (mine.boss) $('boss-fill').style.width = `${Math.max(0, mine.boss.hp / mine.boss.maxHp) * 100}%`;
   $('res').innerHTML = Object.entries(run.resources).map(([k, v]) => `<span>${ORE_ICON[k] ?? ''}${v}</span>`).join('');
@@ -286,21 +374,27 @@ function updateHud(dt: number) {
   for (const w of mine.weapons) {
     alive.add(w.uid);
     let li = cardEls.get(w.uid);
+    const meta = weaponElementMeta(w.def.element);
     if (!li) {
       li = document.createElement('li');
       li.className = 'card';
-      li.style.color = ELEMENT_INFO[w.def.element].css;
-      li.title = w.def.name;
-      li.innerHTML = `<img src="${spriteUrl('weapon', w.def.id)}" alt="${w.def.name}"><span class="hp"><i></i></span><span class="ult"><i></i></span>`;
+      li.style.color = meta.css;
+      li.innerHTML = `<img src="${spriteUrl('weapon', w.def.id)}" alt="${w.def.name}"><span class="dup"></span><span class="hp"><i></i></span><span class="ult"><i></i></span>`;
       cardEls.set(w.uid, li);
       list.appendChild(li);
     }
+    const dupEl = li.querySelector('.dup') as HTMLElement;
+    dupEl.textContent = w.dupStacks > 0 ? `+${w.dupStacks}` : '';
     const [hp, ult] = li.querySelectorAll('i');
     const f = Math.max(0, w.hp / w.maxHp);
     (hp as HTMLElement).style.width = `${f * 100}%`;
-    (hp as HTMLElement).style.background = f > 0.5 ? '#5aff6a' : f > 0.25 ? '#ffd040' : '#ff4040';
-    (ult as HTMLElement).style.width = `${w.ultReady * 100}%`;
-    li.classList.toggle('ready', w.ultReady >= 1);
+    (hp as HTMLElement).style.background = w.def.lifespanDecay
+      ? (f > 0.35 ? '#ffe066' : '#ff7040')
+      : (f > 0.5 ? '#5aff6a' : f > 0.25 ? '#ffd040' : '#ff4040');
+    const ultWrap = li.querySelector('.ult') as HTMLElement;
+    ultWrap.hidden = !w.def.ult;
+    if (w.def.ult) (ult as HTMLElement).style.width = `${w.ultReady * 100}%`;
+    li.classList.toggle('ready', !!w.def.ult && w.ultReady >= 1);
   }
   for (const [id, li] of cardEls) if (!alive.has(id)) { li.remove(); cardEls.delete(id); }
 }
@@ -328,7 +422,7 @@ function frame(now: number) {
 }
 
 // ------------------------------------------------------------------ boot
-buildHelp();
+initWiki(dlgWiki);
 renderReso();
 layoutBoardPadding();
 // show an idle preview mine behind the title screen
@@ -340,7 +434,18 @@ requestAnimationFrame(frame);
 // debug helpers (dev console)
 Object.assign(window, {
   fw: {
-    spawn: (id: WeaponId, power = 1) => spawn(id, power, 'debug'),
+    spawn: (id: WeaponId, power = 1, force = false) => acquire(id, power, 'debug', force),
+    all25: () => WEAPON_LIST.forEach((w, idx) => setTimeout(() => acquire(w.id, 1, 'debug', true), idx * 120)),
+    setLava: (gapBlocks: number) => {
+      if (!mine) return;
+      mine.time = Math.max(mine.time, BAL.lavaGrace + 1);
+      mine.lavaY = mine.deepestY - gapBlocks * mine.B;
+    },
+    maxReso: (el?: Element) => {
+      if (el) resonance[el] = BAL.resonanceMaxLv;
+      else ELEMENTS.forEach((k) => { resonance[k] = BAL.resonanceMaxLv; });
+      renderReso();
+    },
     get mine() { return mine; },
     win: () => mine && onLevelEnd(true, '（debug）'),
     level: (i: number) => startLevel(i),

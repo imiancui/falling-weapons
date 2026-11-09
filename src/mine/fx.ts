@@ -19,26 +19,26 @@ export class Fx {
     this.live.push({ obj, t: dur, dur, tick, dispose });
   }
 
-  private basicMat(color: number, boost = 2.5, opacity = 1) {
+  private basicMat(color: number, boost = 1.05, opacity = 0.65) {
     return new THREE.MeshBasicMaterial({
       color: new THREE.Color(color).multiplyScalar(boost), transparent: true, opacity,
-      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
     });
   }
 
   light(x: number, y: number, color: number, intensity: number, dur: number, dist = 6) {
-    this.flashLights.push({ x, y, color, intensity, dist, prio: 5, t: dur, dur });
+    this.flashLights.push({ x, y, color, intensity: Math.min(intensity, 6), dist, prio: 5, t: dur, dur });
   }
 
   /** Jagged lightning ribbon between points (Three coords). */
-  bolt(from: THREE.Vector2, to: THREE.Vector2, color = 0xfff27a, width = 0.12, dur = 0.25) {
+  bolt(from: THREE.Vector2, to: THREE.Vector2, color = 0xffe878, width = 0.1, dur = 0.22) {
     const pts: THREE.Vector2[] = [];
     const segs = Math.max(3, Math.round(from.distanceTo(to) * 2.5));
     const dir = to.clone().sub(from);
     const nrm = new THREE.Vector2(-dir.y, dir.x).normalize();
     for (let i = 0; i <= segs; i++) {
       const p = from.clone().lerp(to, i / segs);
-      if (i > 0 && i < segs) p.addScaledVector(nrm, (Math.random() - 0.5) * 0.5);
+      if (i > 0 && i < segs) p.addScaledVector(nrm, (Math.random() - 0.5) * 0.45);
       pts.push(p);
     }
     const pos: number[] = [];
@@ -51,53 +51,54 @@ export class Fx {
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    const m = this.basicMat(color, 3);
+    const m = this.basicMat(color, 1.15, 0.72);
     const mesh = new THREE.Mesh(g, m);
     mesh.position.z = 0.8;
-    this.add(mesh, dur, () => { g.dispose(); m.dispose(); }, (f) => { m.opacity = f; });
-    this.light(to.x, to.y, color, 6, dur * 1.5, 5);
+    this.add(mesh, dur, () => { g.dispose(); m.dispose(); }, (f) => { m.opacity = f * 0.72; });
+    this.light(to.x, to.y, color, 3.2, dur * 1.2, 4.5);
   }
 
   explosion(x: number, y: number, radius: number, color = 0xff8a2a) {
     const g = new THREE.SphereGeometry(1, 16, 12);
-    const m = this.basicMat(color, 2.5, 0.9);
+    const m = this.basicMat(color, 1.1, 0.58);
     const mesh = new THREE.Mesh(g, m);
     mesh.position.set(x, y, 0.6);
     this.add(mesh, 0.35, () => { g.dispose(); m.dispose(); }, (f) => {
       const s = radius * (1.1 - f * 0.8);
       mesh.scale.set(s, s, s * 0.6);
-      m.opacity = f * 0.9;
+      m.opacity = f * 0.58;
     });
-    this.glow(x, y, radius * 3, color, 0.4);
-    this.light(x, y, color, 14, 0.4, radius * 4);
-    this.shake = Math.max(this.shake, Math.min(0.5, 0.12 * radius));
+    this.glow(x, y, radius * 2.2, color, 0.36);
+    this.light(x, y, color, 5.5, 0.35, radius * 3.5);
+    this.shake = Math.max(this.shake, Math.min(0.35, 0.09 * radius));
   }
 
   glow(x: number, y: number, size: number, color: number, dur: number) {
-    const m = new THREE.SpriteMaterial({ map: Tex.glow(), color: new THREE.Color(color).multiplyScalar(2), blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false });
+    const m = new THREE.SpriteMaterial({ map: Tex.glow(), color: new THREE.Color(color).multiplyScalar(1.05), blending: THREE.AdditiveBlending, transparent: true, opacity: 0.55, depthWrite: false });
     const s = new THREE.Sprite(m);
     s.position.set(x, y, 0.9);
     s.scale.setScalar(size);
-    this.add(s, dur, () => m.dispose(), (f) => { m.opacity = f; });
+    this.add(s, dur, () => m.dispose(), (f) => { m.opacity = f * 0.55; });
   }
 
   /** Axis-aligned flash rectangle (shockwaves, pillars, areas). x,y = centre. */
-  rect(x: number, y: number, w: number, h: number, color: number, dur = 0.3, boost = 2) {
+  rect(x: number, y: number, w: number, h: number, color: number, dur = 0.28, boost = 0.95) {
     const g = new THREE.PlaneGeometry(w, h);
-    const m = this.basicMat(color, boost, 0.7);
+    const clampedBoost = Math.min(1.15, boost * 0.65);
+    const m = this.basicMat(color, clampedBoost, 0.42);
     const mesh = new THREE.Mesh(g, m);
     mesh.position.set(x, y, 0.75);
-    this.add(mesh, dur, () => { g.dispose(); m.dispose(); }, (f) => { m.opacity = f * 0.7; });
+    this.add(mesh, dur, () => { g.dispose(); m.dispose(); }, (f) => { m.opacity = f * 0.42; });
   }
 
   ring(x: number, y: number, r: number, color: number, dur = 0.5) {
-    const g = new THREE.RingGeometry(0.85, 1, 32);
-    const m = this.basicMat(color, 2, 0.8);
+    const g = new THREE.RingGeometry(0.86, 1, 32);
+    const m = this.basicMat(color, 1.05, 0.52);
     const mesh = new THREE.Mesh(g, m);
     mesh.position.set(x, y, 0.7);
     this.add(mesh, dur, () => { g.dispose(); m.dispose(); }, (f) => {
       mesh.scale.setScalar(r * (1.2 - f * 0.4));
-      m.opacity = f * 0.8;
+      m.opacity = f * 0.52;
     });
   }
 

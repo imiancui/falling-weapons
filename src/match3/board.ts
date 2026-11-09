@@ -88,11 +88,11 @@ export class Match3 {
       const front = new THREE.MeshStandardMaterial({ map: Tex.tile(k), roughness: 0.45, metalness: 0.05, emissive: 0xffffff, emissiveMap: Tex.tile(k), emissiveIntensity: 0.12 });
       this.mats.push([side, side, side, side, front, side]);
     }
-    const rbSide = new THREE.MeshStandardMaterial({ color: 0x8a5aff, roughness: 0.4 });
-    const rbFront = new THREE.MeshStandardMaterial({ map: Tex.rainbow(), emissive: 0xffffff, emissiveMap: Tex.rainbow(), emissiveIntensity: 1.6, toneMapped: false });
+    const rbSide = new THREE.MeshStandardMaterial({ color: 0x6a48c8, roughness: 0.45 });
+    const rbFront = new THREE.MeshStandardMaterial({ map: Tex.rainbow(), emissive: 0xffffff, emissiveMap: Tex.rainbow(), emissiveIntensity: 0.45 });
     this.rainbowMats = [rbSide, rbSide, rbSide, rbSide, rbFront, rbSide];
     const mkOverlay = (k: 'lineH' | 'lineV' | 'bomb') =>
-      new THREE.MeshBasicMaterial({ map: Tex.special(k), transparent: true, color: new THREE.Color(2.2, 2.2, 2.2), toneMapped: false, depthWrite: false });
+      new THREE.MeshBasicMaterial({ map: Tex.special(k), transparent: true, color: new THREE.Color(0.92, 0.9, 0.82), depthWrite: false });
     this.overlayMats = { lineH: mkOverlay('lineH'), lineV: mkOverlay('lineV'), bomb: mkOverlay('bomb') };
 
     // board backdrop
@@ -108,10 +108,10 @@ export class Match3 {
     this.scene.add(frame);
 
     this.selMesh = new THREE.Mesh(
-      new THREE.RingGeometry(0.5, 0.58, 4, 1, Math.PI / 4),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(3, 3, 2), toneMapped: false }),
+      new THREE.RingGeometry(0.51, 0.57, 4, 1, Math.PI / 4),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(0.92, 0.78, 0.36) }),
     );
-    this.selMesh.scale.set(1.18, 1.18, 1);
+    this.selMesh.scale.set(1.14, 1.14, 1);
     this.selMesh.position.z = 0.4;
     this.selMesh.visible = false;
     this.scene.add(this.selMesh);
@@ -121,7 +121,7 @@ export class Match3 {
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), isLowQuality ? 0.5 : 0.7, 0.4, 0.92);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), isLowQuality ? 0.25 : 0.35, 0.35, 1.05);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
 
@@ -338,26 +338,27 @@ export class Match3 {
     for (const { tile, r, c } of step.spawned) {
       this.refreshView(tile, r, c);
       const [x, y] = this.cellPos(r, c);
-      this.particles.burst(x, y, 0.4, 16, 0xffffff, 5, 0.5, 0);
+      this.particles.burst(x, y, 0.4, 10, 0xf2e6b8, 3.5, 0.45, 0);
     }
     for (const e of step.effects) {
       const [x, y] = this.cellPos(e.r, e.c);
-      if (e.kind === 'lineH') this.flash(0, y, N, 0.5, 0xffffff);
-      else if (e.kind === 'lineV') this.flash(x, 0, 0.5, N, 0xffffff);
-      else if (e.kind === 'bomb') this.flash(x, y, (e.radius ?? 1) * 2 + 1, (e.radius ?? 1) * 2 + 1, 0xffe080);
-      else if (e.kind === 'rainbow') this.flash(x, y, 1.6, 1.6, 0xd080ff);
-      else this.flash(0, 0, N, N, 0xffffff);
+      if (e.kind === 'lineH') this.flash(0, y, N, 0.38, 0xf0e4c0);
+      else if (e.kind === 'lineV') this.flash(x, 0, 0.38, N, 0xf0e4c0);
+      else if (e.kind === 'bomb') this.flash(x, y, (e.radius ?? 1) * 2 + 0.8, (e.radius ?? 1) * 2 + 0.8, 0xf0c878);
+      else if (e.kind === 'rainbow') this.flash(x, y, 1.4, 1.4, 0xb880f0);
+      else this.flash(0, 0, N, N, 0xe8d8b0, 0.22);
     }
   }
 
-  private flash(x: number, y: number, w: number, h: number, color: number) {
+  private flash(x: number, y: number, w: number, h: number, color: number, maxOp = 0.32) {
     const m = new THREE.Mesh(
       new THREE.PlaneGeometry(w, h),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(2.5), transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, toneMapped: false, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(0.85), transparent: true, opacity: maxOp, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
+    m.userData.maxOp = maxOp;
     m.position.set(x, y, 0.5);
     this.scene.add(m);
-    this.flashes.push({ mesh: m, t: 0.3, dur: 0.3 });
+    this.flashes.push({ mesh: m, t: 0.28, dur: 0.28 });
   }
 
   // ------------------------------------------------------------ frame
@@ -405,14 +406,14 @@ export class Match3 {
         let s = v.scale;
         let rotZ = 0;
         if (hintIds.has(t.id)) {
-          s *= 1 + Math.sin(this.time * 10) * 0.06;
-          rotZ = Math.sin(this.time * 14) * 0.12;
+          s *= 1 + Math.sin(this.time * 3.5) * 0.045;
+          rotZ = Math.sin(this.time * 3.5) * 0.06;
         }
         v.mesh.position.set(v.x, v.y, 0);
         v.mesh.scale.setScalar(s);
         v.mesh.rotation.z = rotZ;
-        if (t.special === Sp.Rainbow) v.mesh.rotation.z = this.time * 1.5;
-        if (v.overlay) (v.overlay.material as THREE.MeshBasicMaterial).opacity = 0.6 + Math.sin(this.time * 6) * 0.35;
+        if (t.special === Sp.Rainbow) v.mesh.rotation.z = this.time * 0.6;
+        if (v.overlay) (v.overlay.material as THREE.MeshBasicMaterial).opacity = 0.82 + Math.sin(this.time * 2.2) * 0.08;
       }
     // dying
     this.dying = this.dying.filter((v) => {
@@ -425,7 +426,8 @@ export class Match3 {
     });
     this.flashes = this.flashes.filter((f) => {
       f.t -= dt;
-      (f.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, f.t / f.dur) * 0.8;
+      const maxOp = (f.mesh.userData.maxOp as number | undefined) ?? 0.32;
+      (f.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, f.t / f.dur) * maxOp;
       if (f.t <= 0) {
         this.scene.remove(f.mesh);
         f.mesh.geometry.dispose();
@@ -439,7 +441,7 @@ export class Match3 {
       const [x, y] = this.cellPos(this.selected[0], this.selected[1]);
       this.selMesh.visible = true;
       this.selMesh.position.set(x, y, 0.4);
-      this.selMesh.scale.setScalar(1.18 + Math.sin(this.time * 8) * 0.05);
+      this.selMesh.scale.setScalar(1.14 + Math.sin(this.time * 2.4) * 0.025);
     } else this.selMesh.visible = false;
     this.particles.update(dt);
     this.debris.update(dt);

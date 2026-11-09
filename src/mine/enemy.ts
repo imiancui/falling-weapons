@@ -5,13 +5,13 @@ import { Tex } from '../gfx/pixel';
 import type { Mine } from './world';
 import type { Weapon } from './weapon';
 
-export interface EnemyStats { hp: number; name: string; range: number; dmg: number; cd: number }
+export interface EnemyStats { hp: number; name: string; range: number; dmg: number; cd: number; desc: string }
 export const ENEMY_STATS: Record<EnemyKind | 'golem', EnemyStats> = {
-  zombie: { hp: 40, name: '殭屍礦工', range: 1.4, dmg: 8, cd: 1.0 },
-  skeleton: { hp: 30, name: '骷髏弓手', range: 6, dmg: 6, cd: 2.2 },
-  mushroom: { hp: 25, name: '爆裂菇', range: 1.7, dmg: 25, cd: 1.0 },
-  spider: { hp: 35, name: '洞穴蜘蛛', range: 4.5, dmg: 0, cd: 4.0 },
-  golem: { hp: 6000, name: '岩石巨像', range: 0, dmg: 5, cd: 0.5 },
+  zombie: { hp: 40, name: '殭屍礦工', range: 1.4, dmg: 8, cd: 1.0, desc: '近戰怪物，武器進入 1.4 格內時每秒揮擊扣血' },
+  skeleton: { hp: 30, name: '骷髏弓手', range: 6, dmg: 6, cd: 2.2, desc: '遠程怪物，對 6 格內的武器發射箭矢造成傷害' },
+  mushroom: { hp: 25, name: '爆裂菇', range: 1.7, dmg: 25, cd: 1.0, desc: '武器靠近 1.7 格內會引信 1 秒後自爆，重創周圍武器與方塊' },
+  spider: { hp: 35, name: '洞穴蜘蛛', range: 4.5, dmg: 0, cd: 4.0, desc: '對 4.5 格內的武器吐出蛛網，命中後使武器下墜與旋轉大幅減速 1.5 秒' },
+  golem: { hp: 6000, name: '岩石巨像', range: 0, dmg: 5, cd: 0.5, desc: '第 3 關底部 Boss：施放落石雨、召喚洞穴小怪，並展開減傷 50% 的岩殼（可用雷電、爆炸或神聖攻擊直接擊碎）' },
 };
 
 const hpBarGeo = new THREE.PlaneGeometry(1, 0.1);
@@ -32,6 +32,7 @@ export class Enemy {
   poisonDps = 0;
   poisonUntil = 0;
   plague = false;
+  venomUntil = 0; // Hydra +50% damage taken debuff
   burnDps = 0;
   burnUntil = 0;
   frozenUntil = 0;
@@ -98,14 +99,14 @@ export class Enemy {
     const w = this.nearestWeapon(10);
     if (w) this.sprite.scale.x = w.x < this.x ? -1 : 1;
     const c = this.mat.color;
-    if (this.frozen) c.setRGB(0.6, 0.9, 1.6);
-    else if (m.time < this.burnUntil) c.setRGB(1.6, 0.8, 0.5);
-    else if (m.time < this.poisonUntil) c.setRGB(0.6, 1.4, 0.5);
+    if (this.frozen) c.setRGB(0.65, 0.92, 1.35);
+    else if (m.time < this.burnUntil) c.setRGB(1.3, 0.82, 0.58);
+    else if (m.time < this.poisonUntil) c.setRGB(0.68, 1.25, 0.58);
     else c.setRGB(1, 1, 1);
     if (this.hurtFlash > 0) {
       this.hurtFlash -= dt;
-      this.mat.emissiveIntensity = 1.2;
-    } else this.mat.emissiveIntensity = this.fuse >= 0 ? 0.25 + Math.abs(Math.sin(m.time * 20)) : 0.25;
+      this.mat.emissiveIntensity = 0.52;
+    } else this.mat.emissiveIntensity = this.fuse >= 0 ? 0.3 + Math.abs(Math.sin(m.time * 4)) * 0.25 : 0.22;
     const hpVis = this.hp < this.maxHp;
     this.hpBg.visible = this.hpFill.visible = hpVis && !this.isBoss;
     if (hpVis) {

@@ -323,17 +323,313 @@ const W_BOOMERANG = [
   '................',
 ];
 
+// ---- Low-tier (5) ----
+const W_PICK = [
+  '.......ooooo....',
+  '......oLLYYYo...',
+  '.....oYYoooYYo..',
+  '.....oo...oHYYo.',
+  '.........oHoYYo.',
+  '........oHo.ooo.',
+  '.......oHo..oYo.',
+  '......oHo...oo..',
+  '.....oHo........',
+  '....oHo.........',
+  '...oHo..........',
+  '..oHo...........',
+  '.oHo............',
+  '.oo.............',
+  '................',
+  '................',
+];
+const W_BATON = [
+  '................',
+  '............oo..',
+  '...........oLLo.',
+  '..........oLYLo.',
+  '.........oYYYYo.',
+  '........oYYYYo..',
+  '.......oGGGGGo..',
+  '......oGGGGGo...',
+  '.....oHGGGGoo...',
+  '....oHGo........',
+  '...oHGo.........',
+  '..oHGo..........',
+  '.oHoo...........',
+  '.oo.............',
+  '................',
+  '................',
+];
+const W_NEEDLE = [
+  '................',
+  '.............oo.',
+  '............oLo.',
+  '...........oLYo.',
+  '..........oYYo..',
+  '.........oYYo...',
+  '........oYYo....',
+  '.......oYYo.....',
+  '......oGGo......',
+  '.....oGGo.......',
+  '....oHo.........',
+  '...oHo..........',
+  '..oo............',
+  '................',
+  '................',
+  '................',
+];
+const W_TORCH = [
+  '...........o....',
+  '..........oLo...',
+  '.........oLLYo..',
+  '........oLYYYYo.',
+  '........oLYYYGo.',
+  '.........oYGGo..',
+  '........oGGGGoo.',
+  '.......oHGGoo...',
+  '......oHHo......',
+  '.....oHHo.......',
+  '....oHHo........',
+  '...oHHo.........',
+  '..oHHo..........',
+  '.oHoo...........',
+  '.oo.............',
+  '................',
+];
+const W_ICICLE = [
+  '................',
+  '............oo..',
+  '...........oLLo.',
+  '..........oLLYo.',
+  '.........oLLYYo.',
+  '........oLLYYGo.',
+  '.......oLLYYGGo.',
+  '......oLLYYGGo..',
+  '.....oLLYYGoo...',
+  '....oLYYGoo.....',
+  '...oYYGoo.......',
+  '..oYGoo.........',
+  '.oooo...........',
+  '................',
+  '................',
+  '................',
+];
+
+// ---- Cumulative (5) ----
+const W_DRILL = [
+  '............oo..',
+  '...........oLLo.',
+  '.........ooLYYo.',
+  '........oLLYYGo.',
+  '.......oYYYYYGo.',
+  '......oLLYYYYo..',
+  '.....oYYYYYGo...',
+  '....oGGGGGGGo...',
+  '...oGHHHHHGGo...',
+  '...oHHHHHHGo....',
+  '..oHHo..oHHo....',
+  '.oHHo..oHHo.....',
+  '.ooo...ooo......',
+  '................',
+  '................',
+  '................',
+];
+const W_CORE_ORB = [
+  '......oooo......',
+  '....ooYYYYoo....',
+  '...oYYLLLLYYo...',
+  '..oYLLWWWWLLYo..',
+  '.oYLWWWWWWWWLYo.',
+  '.oYLWWGGGGWWLYo.',
+  'oYYLWGGLLGGWLYYo',
+  'oYYLWGLWWLGWLYYo',
+  'oYYLWGGLLGGWLYYo',
+  '.oYLWWGGGGWWLYo.',
+  '.oYLWWWWWWWWLYo.',
+  '..oYLLWWWWLLYo..',
+  '...oYYLLLLYYo...',
+  '....ooYYYYoo....',
+  '......oooo......',
+  '................',
+];
+const W_KATAR = [
+  '............ooo.',
+  '..........ooLLo.',
+  '.........oLLYYo.',
+  '........oLYYoo..',
+  '.......oLYYo..o.',
+  '......oLYYo..oLo',
+  '...oooGYYo..oLYo',
+  '..oHHGGYo..oLYo.',
+  '.oHHoGGo..oLYo..',
+  '.oHooGGooLLYo...',
+  '..o..oGGGGoo....',
+  '.....oHHo.......',
+  '....oHHo........',
+  '....ooo.........',
+  '................',
+  '................',
+];
+const W_FLAMEBLADE = [
+  '...........ooo..',
+  '..........oLLYo.',
+  '........ooLYYYo.',
+  '.......oLLYYYYo.',
+  '......oLYYYYGGo.',
+  '.....oLYYYYGGo..',
+  '....oLYYYYGoo...',
+  '...oLYYYYGGo....',
+  '..oooYYYYGo.....',
+  '..oGGoYYGo......',
+  '...oGGoGo.......',
+  '...oHHGGoo......',
+  '..oHHo.oo.......',
+  '.oHHo...........',
+  '.ooo............',
+  '................',
+];
+const W_FROSTCLAW = [
+  '..........oo.oo.',
+  '........ooLo.oLo',
+  '.......oLLo.oLLo',
+  '.....ooLYo.oLYo.',
+  '....oLLYo.oLYo.o',
+  '...oLYYo.oLYo.oL',
+  '...ooYo.oLYo.oLY',
+  '.....oGoYYo.oLYo',
+  '....oGGGGo.oLYo.',
+  '...oHHHHGGoYYo..',
+  '..oHHHHHHGGoo...',
+  '..oHHHHHHHo.....',
+  '...ooHHHHo......',
+  '.....oooo.......',
+  '................',
+  '................',
+];
+
+// ---- Legendaries & Holy Sword (5) ----
+const W_TITAN = [
+  '......oooooooo..',
+  '.....oLLLLYYYYo.',
+  '....oLLYYYYYYGo.',
+  '....oLYYGGGGYGo.',
+  '....oYYYYYYYYGo.',
+  '.....oYYYYYYGGo.',
+  '......ooYYHGGo..',
+  '.......oHHoooo..',
+  '......oHHo......',
+  '.....oHHo.......',
+  '....oHHo........',
+  '...oHHo.........',
+  '..oHHo..........',
+  '.oHHo...........',
+  '.ooo............',
+  '................',
+];
+const W_MJOLNIR = [
+  '......ooooooo...',
+  '.....oLLLLLLYo..',
+  '....oLLWWWWLYYo.',
+  '....oLYWYYYWLYo.',
+  '....oLYYYYYYLYo.',
+  '.....oYYYYYYYo..',
+  '......ooGHHGoo..',
+  '.......oHHHo....',
+  '......oHHo......',
+  '.....oHHo.......',
+  '....oHHo........',
+  '...oHHo.........',
+  '..oGGo..........',
+  '.oGWGo..........',
+  '..ooo...........',
+  '................',
+];
+const W_HYDRA = [
+  '..........oo.oo.',
+  '.........oLo.oLo',
+  '.....oo.oLYooLYo',
+  '....oLo.oYYYYYo.',
+  '....oLYooYYYYGo.',
+  '.....oYYYYYYGGo.',
+  '......oYYYYGGo..',
+  '.....oGGYYGoo...',
+  '....oGGGGGo.....',
+  '...oGHHHHGo.....',
+  '...oHo.oHo......',
+  '..oHo..oo.......',
+  '.oHo............',
+  '.oo.............',
+  '................',
+  '................',
+];
+const W_DRAGON = [
+  '............ooo.',
+  '...........oWWLo',
+  '.........ooWLLYo',
+  '........oWWLYYYo',
+  '.......oWLYYYYGo',
+  '......oWLYYYYGGo',
+  '..oo.oWLYYYYGGo.',
+  '..oGooLYYYYGGo..',
+  '...oGGLYYYGGo...',
+  '....oGGYYGoo....',
+  '...oHHGGGGo.....',
+  '..oHHo.oGGo.....',
+  '.oHHo...oo......',
+  '.ooo............',
+  '................',
+  '................',
+];
+const W_EXCALIBUR = [
+  '.............ooo',
+  '............oWWo',
+  '...........oWLYo',
+  '..........oWLYo.',
+  '.........oWLYo..',
+  '..oo....oWLYo...',
+  '..oGoo.oWLYo....',
+  '...oGGGWLYo.....',
+  '....oGWWGo......',
+  '...oHGGGGGo.....',
+  '..oHHoGGooGo....',
+  '.oHHo.oo..oo....',
+  'oWWHo...........',
+  'oWWo............',
+  '.oo.............',
+  '................',
+];
+
 const WEAPON_ART: Record<WeaponId, { rows: string[]; pal: Palette }> = {
+  // low
+  pick: { rows: W_PICK, pal: { o: '#24180e', Y: '#9a7858', L: '#ccb090', H: '#6a4222' } },
+  baton: { rows: W_BATON, pal: { o: '#242008', Y: '#e8c838', L: '#fff8c8', G: '#585868', H: '#30303a' } },
+  needle: { rows: W_NEEDLE, pal: { o: '#0e2008', Y: '#68cc40', L: '#d0ffa8', G: '#406040', H: '#2e382e' } },
+  torch: { rows: W_TORCH, pal: { o: '#2a1004', Y: '#ff8a28', L: '#fff0a0', G: '#cc3818', H: '#6a4424' } },
+  icicle: { rows: W_ICICLE, pal: { o: '#082030', Y: '#68ccf8', L: '#ebfcff', G: '#3488b8' } },
+  // t1
   axe: { rows: W_AXE, pal: { o: '#2a1a0e', Y: '#b8875a', L: '#f0c890', H: '#7a4a22' } },
-  hammer: { rows: W_HAMMER, pal: { o: '#1e140c', Y: '#8a6a4a', L: '#d8b080', H: '#5a3a1a' } },
   blade: { rows: W_BLADE, pal: { o: '#2a2208', Y: '#ffd84a', L: '#fffbe0', G: '#6a5a20', H: '#3a2a10' } },
-  halberd: { rows: W_HALBERD, pal: { o: '#2a2208', Y: '#ffcc22', L: '#fffbe0', H: '#5a4a30' } },
   dagger: { rows: W_DAGGER, pal: { o: '#0e2208', Y: '#6ad040', L: '#d8ffb0', G: '#3a5a2a', H: '#4a2a1a' } },
-  scythe: { rows: W_SCYTHE, pal: { o: '#0e1a08', Y: '#4ab830', L: '#c8ff9a', H: '#3a2a3a' } },
   sword: { rows: W_SWORD, pal: { o: '#2a0a04', Y: '#ff5a32', L: '#ffd0a0', G: '#ffb020', H: '#5a2a14' } },
-  meteor: { rows: W_METEOR, pal: { o: '#2a0a04', Y: '#ff6a2a', L: '#ffe680', G: '#a02a10', H: '#4a2a1a' } },
   spear: { rows: W_SPEAR, pal: { o: '#08202a', Y: '#6ad4ff', L: '#e8faff', G: '#a0c0d0', H: '#6a5a4a' } },
+  // t2
+  hammer: { rows: W_HAMMER, pal: { o: '#1e140c', Y: '#8a6a4a', L: '#d8b080', H: '#5a3a1a' } },
+  halberd: { rows: W_HALBERD, pal: { o: '#2a2208', Y: '#ffcc22', L: '#fffbe0', H: '#5a4a30' } },
+  scythe: { rows: W_SCYTHE, pal: { o: '#0e1a08', Y: '#4ab830', L: '#c8ff9a', H: '#3a2a3a' } },
+  meteor: { rows: W_METEOR, pal: { o: '#2a0a04', Y: '#ff6a2a', L: '#ffe680', G: '#a02a10', H: '#4a2a1a' } },
   boomerang: { rows: W_BOOMERANG, pal: { o: '#08202a', Y: '#7adcff', L: '#f0fcff' } },
+  // cumulative
+  drill: { rows: W_DRILL, pal: { o: '#22160c', Y: '#c8965c', L: '#f4d8a8', G: '#7a6858', H: '#4a3828' } },
+  core_orb: { rows: W_CORE_ORB, pal: { o: '#282008', Y: '#f4c430', L: '#fff4a8', W: '#80e8ff', G: '#3a5878' } },
+  katar: { rows: W_KATAR, pal: { o: '#102010', Y: '#58d848', L: '#d8ffc0', G: '#584868', H: '#34243c' } },
+  flameblade: { rows: W_FLAMEBLADE, pal: { o: '#2c0a04', Y: '#ff6428', L: '#ffe898', G: '#c82414', H: '#4e2818' } },
+  frostclaw: { rows: W_FROSTCLAW, pal: { o: '#082030', Y: '#60ccff', L: '#f0ffff', G: '#386890', H: '#283c54' } },
+  // legendaries & holy
+  titan: { rows: W_TITAN, pal: { o: '#1c1208', Y: '#d49a54', L: '#ffe4b0', G: '#ff9838', H: '#5c3818' } },
+  mjolnir: { rows: W_MJOLNIR, pal: { o: '#1c1c28', Y: '#ffd438', L: '#fff8c8', W: '#b8f4ff', G: '#687898', H: '#4a3824' } },
+  hydra: { rows: W_HYDRA, pal: { o: '#0a1e0a', Y: '#50e838', L: '#e0ffb8', G: '#8838b8', H: '#382044' } },
+  dragon: { rows: W_DRAGON, pal: { o: '#240604', W: '#fff8d0', L: '#ffb838', Y: '#f04020', G: '#981818', H: '#3c1c1c' } },
+  excalibur: { rows: W_EXCALIBUR, pal: { o: '#2c2008', W: '#ffffff', L: '#fff4b8', Y: '#ffd858', G: '#e8a828', H: '#4868c8' } },
 };
 
 // ---------------------------------------------------------------- enemies
@@ -590,22 +886,37 @@ function rainbowCanvas(): HTMLCanvasElement {
   return c;
 }
 
-/** Overlays for special tiles. */
+/** Overlays for special tiles — crisp edge markers that leave the centre icon clear and non-glaring. */
 function specialOverlay(kind: 'lineH' | 'lineV' | 'bomb'): HTMLCanvasElement {
   const [c, ctx] = canvas(20, 20);
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillStyle = 'rgba(0,0,0,0.65)';
   if (kind === 'lineH') {
-    for (const y of [3, 9, 15]) { ctx.fillRect(0, y, 20, 2); }
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    for (const y of [5, 11]) ctx.fillRect(0, y, 20, 1);
+    ctx.fillRect(0, 1, 20, 3);
+    ctx.fillRect(0, 16, 20, 3);
+    ctx.fillStyle = '#f2e8c8';
+    ctx.fillRect(1, 2, 18, 1);
+    ctx.fillRect(1, 17, 18, 1);
+    // left/right arrows
+    ctx.fillRect(1, 9, 3, 2); ctx.fillRect(2, 8, 1, 4);
+    ctx.fillRect(16, 9, 3, 2); ctx.fillRect(17, 8, 1, 4);
   } else if (kind === 'lineV') {
-    for (const x of [3, 9, 15]) { ctx.fillRect(x, 0, 2, 20); }
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    for (const x of [5, 11]) ctx.fillRect(x, 0, 1, 20);
+    ctx.fillRect(1, 0, 3, 20);
+    ctx.fillRect(16, 0, 3, 20);
+    ctx.fillStyle = '#f2e8c8';
+    ctx.fillRect(2, 1, 1, 18);
+    ctx.fillRect(17, 1, 1, 18);
+    // top/bottom arrows
+    ctx.fillRect(9, 1, 2, 3); ctx.fillRect(8, 2, 4, 1);
+    ctx.fillRect(9, 16, 2, 3); ctx.fillRect(8, 17, 4, 1);
   } else {
-    ctx.fillStyle = 'rgba(255,240,160,0.95)';
+    // corner brackets + warm amber border for 3x3 bomb
+    ctx.fillStyle = '#181008';
     ctx.fillRect(0, 0, 20, 2); ctx.fillRect(0, 18, 20, 2); ctx.fillRect(0, 0, 2, 20); ctx.fillRect(18, 0, 2, 20);
-    ctx.fillRect(4, 4, 2, 2); ctx.fillRect(14, 4, 2, 2); ctx.fillRect(4, 14, 2, 2); ctx.fillRect(14, 14, 2, 2);
+    ctx.fillStyle = '#f4c868';
+    ctx.fillRect(1, 1, 5, 1); ctx.fillRect(1, 1, 1, 5);
+    ctx.fillRect(14, 1, 5, 1); ctx.fillRect(18, 1, 1, 5);
+    ctx.fillRect(1, 18, 5, 1); ctx.fillRect(1, 14, 1, 5);
+    ctx.fillRect(14, 18, 5, 1); ctx.fillRect(18, 14, 1, 5);
   }
   return c;
 }
@@ -695,15 +1006,18 @@ export const Tex = {
   iceShard: () => cached('iceshard', iceShardCanvas),
 };
 
-/** Data-URL versions for DOM UI (weapon cards, tile icons in HUD). */
+/** Data-URL versions for DOM UI (weapon cards, tile icons in HUD, Wiki tables). */
 const urlCache = new Map<string, string>();
-export function spriteUrl(kind: 'weapon' | 'tile' | 'enemy', id: string | number): string {
-  const key = kind + id;
+export function spriteUrl(kind: 'weapon' | 'tile' | 'enemy' | 'block' | 'rainbow' | 'special', id: string | number): string {
+  const key = kind + ':' + id;
   let u = urlCache.get(key);
   if (!u) {
     let c: HTMLCanvasElement;
     if (kind === 'weapon') c = sprite(WEAPON_ART[id as WeaponId].rows, WEAPON_ART[id as WeaponId].pal);
     else if (kind === 'enemy') c = sprite(ENEMY_ART[id as string].rows, ENEMY_ART[id as string].pal);
+    else if (kind === 'block') { seed = 1000 + String(id).length * 97 + String(id).charCodeAt(0); c = blockCanvas(id as BlockType); }
+    else if (kind === 'rainbow') c = rainbowCanvas();
+    else if (kind === 'special') c = specialOverlay(id as 'lineH' | 'lineV' | 'bomb');
     else c = tileCanvas(id as number);
     u = c.toDataURL();
     urlCache.set(key, u);

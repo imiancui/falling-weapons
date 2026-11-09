@@ -1,8 +1,8 @@
 // The right-hand "Falling Pickaxe" part: Matter.js physics + Three.js HD-2D-style rendering.
 import * as THREE from 'three';
 import Matter from 'matter-js';
-import { BAL, BLOCKS, ELEMENT_INFO, type BlockType, type Element, type EnemyKind, type LevelDef, type Mods } from '../data/config';
-import type { WeaponId } from '../data/weapons';
+import { BAL, BLOCKS, weaponElementMeta, type BlockType, type Element, type EnemyKind, type LevelDef, type Mods, type WeaponElement } from '../data/config';
+import { WEAPONS, type WeaponId } from '../data/weapons';
 import { Tex } from '../gfx/pixel';
 import { Particles } from '../gfx/particles';
 import { Fx, type LightReq } from './fx';
@@ -10,14 +10,23 @@ import { Weapon, onHit } from './weapon';
 import { Enemy, Golem } from './enemy';
 
 export interface DmgSrc {
-  element?: Element;
-  kind: 'hit' | 'explosion' | 'thunder' | 'dot' | 'ice' | 'shock' | 'fire' | 'enemy';
+  element?: WeaponElement;
+  kind: 'hit' | 'explosion' | 'thunder' | 'dot' | 'ice' | 'shock' | 'fire' | 'holy' | 'enemy';
   weapon?: Weapon;
+  crit?: boolean;
 }
 export type Target = { kind: 'block'; r: number; c: number } | { kind: 'enemy'; e: Enemy };
 
 interface BlockState { type: BlockType; hp: number; maxHp: number; inst: number; body: Matter.Body | null }
-interface CellStatus { poisonDps: number; poisonUntil: number; plague: boolean; burnDps: number; burnUntil: number }
+interface CellStatus {
+  poisonDps: number;
+  poisonUntil: number;
+  plague: boolean;
+  venomUntil: number;
+  burnDps: number;
+  burnUntil: number;
+  frostUntil: number;
+}
 export interface Projectile {
   kind: 'arrow' | 'web' | 'rock' | 'shard' | 'meteor';
   x: number; y: number; vx: number; vy: number; r: number; life: number;
@@ -62,7 +71,7 @@ export class Mine {
   private scheduled: { t: number; fn: () => void }[] = [];
   private pendingHits = new Map<Weapon, Target>();
   private acc = 0;
-  lavaY = -3 * BAL.block;
+  lavaY = -1.5 * BAL.block;
   deepestY: number;
   shieldUntil = 0;
   private camY = 0;
@@ -70,6 +79,7 @@ export class Mine {
   private aspect = 1;
   private lastFocusY: number;
   private lava: THREE.Mesh;
+  private lavaCrust: THREE.Mesh;
   private lavaGlow: THREE.Mesh;
   private lights: THREE.PointLight[] = [];
   private hemi: THREE.HemisphereLight;
@@ -115,6 +125,7 @@ export class Mine {
     this.setupScene();
     this.generate();
     this.lava = this.makeLava();
+    this.lavaCrust = this.makeLavaCrust();
     this.lavaGlow = this.makeLavaGlow();
     this.hemi = this.scene.children.find((o) => o instanceof THREE.HemisphereLight) as THREE.HemisphereLight;
   }
@@ -164,19 +175,28 @@ export class Mine {
     tex.repeat.set(4, 20);
     tex.needsUpdate = true;
     const m = new THREE.Mesh(
-      new THREE.BoxGeometry(this.cols + 12, 60, 1.4),
-      new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(1.8, 1.4, 1.2), toneMapped: false }),
+      new THREE.BoxGeometry(this.cols + 12, 60, 1.3),
+      new THREE.MeshBasicMaterial({ map: tex, color: new THREE.Color(1.35, 1.0, 0.85), transparent: true, opacity: 0.84 }),
     );
-    m.position.z = 0.2;
+    m.position.z = 0.25;
+    this.scene.add(m);
+    return m;
+  }
+  private makeLavaCrust(): THREE.Mesh {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(this.cols + 12, 0.35),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(1.35, 0.85, 0.3), transparent: true, opacity: 0.92, depthWrite: false }),
+    );
+    m.position.z = 0.92;
     this.scene.add(m);
     return m;
   }
   private makeLavaGlow(): THREE.Mesh {
     const m = new THREE.Mesh(
-      new THREE.PlaneGeometry(this.cols + 12, 2.5),
-      new THREE.MeshBasicMaterial({ map: Tex.glow(), color: new THREE.Color(3, 1.2, 0.3), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }),
+      new THREE.PlaneGeometry(this.cols + 12, 2.8),
+      new THREE.MeshBasicMaterial({ map: Tex.glow(), color: new THREE.Color(1.5, 0.6, 0.18), transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
-    m.position.z = 1;
+    m.position.z = 0.95;
     this.scene.add(m);
     return m;
   }
@@ -330,20 +350,49 @@ export class Mine {
   }
 
   // ------------------------------------------------------------------ weapons
+  /** Checks whether multiple copies of `id` are unlocked (element resonance === Lv5). */
+  canMultiCopy(id: WeaponId): boolean {
+    const def = WEAPONS[id];
+    if (def.element === 'holy') {
+      return Object.values(this.resonance).some((lv) => lv >= BAL.resonanceMaxLv);
+    }
+    return this.resonance[def.element] >= BAL.resonanceMaxLv;
+  }
+
+  /**
+   * Acquires a weapon: if element resonance < Lv5 and a copy of `id` is already alive,
+   * heals it to full and boosts its damage instead of spawning a duplicate.
+   */
+  acquireWeapon(id: WeaponId, power: number, forceSpawn = false): { weapon: Weapon; mode: 'spawned' | 'upgraded' } {
+    if (!forceSpawn && !this.canMultiCopy(id)) {
+      const existing = this.weapons.find((w) => !w.dead && w.def.id === id);
+      if (existing) {
+        existing.upgradeFromDuplicate(power);
+        return { weapon: existing, mode: 'upgraded' };
+      }
+    }
+    return { weapon: this.spawnWeapon(id, power), mode: 'spawned' };
+  }
+
   spawnWeapon(id: WeaponId, power: number): Weapon {
     const [x, y] = this.findSpawnPoint();
     const w = new Weapon(this, id, power, x, y);
+    // Give brief protection if spawning very close to lava
+    if (y - this.lavaY < this.B * 3) w.invulnUntil = Math.max(w.invulnUntil, this.time + 1.5);
     this.weapons.push(w);
     this.scene.add(w.group);
     Matter.Composite.add(this.engine.world, w.body);
     this.updateActiveRows();
     const p = this.to3(x, y);
-    this.fx.ring(p.x, p.y, 1.5, ELEMENT_INFO[w.def.element].color, 0.6);
-    this.fx.text(p.x, p.y - 1, w.def.name, ELEMENT_INFO[w.def.element].css, 1.4, 0.5);
-    this.sparks.burst(p.x, p.y, 0.8, 30, ELEMENT_INFO[w.def.element].color, 4, 0.6, 0);
-    // cap: drop the weakest if too many
-    if (this.weapons.length > 12) {
-      const weakest = this.weapons.reduce((a, b) => (a.hp / a.maxHp < b.hp / b.maxHp ? a : b));
+    const meta = weaponElementMeta(w.def.element);
+    this.fx.ring(p.x, p.y, 1.4, meta.color, 0.5);
+    this.fx.text(p.x, p.y - 0.9, w.def.name, meta.css, 1.3, 0.48);
+    this.sparks.burst(p.x, p.y, 0.8, 22, meta.color, 3.6, 0.55, 0);
+    // safety cap: prefer replacing lowest-HP low-tier weapon first
+    if (this.weapons.length > BAL.maxWeapons) {
+      const lowCandidates = this.weapons.filter((o) => o !== w && o.def.category === 'low');
+      const pool = lowCandidates.length ? lowCandidates : this.weapons.filter((o) => o !== w);
+      const weakest = pool.reduce((a, b) => (a.hp / a.maxHp < b.hp / b.maxHp ? a : b));
       this.killWeapon(weakest);
     }
     return w;
@@ -354,18 +403,20 @@ export class Mine {
     const camRow = Math.floor(-this.camY);
     const lavaRow = Math.floor(this.lavaY / this.B);
     const deepRow = Math.floor(this.deepestY / this.B);
-    const start = Math.max(0, camRow - Math.floor(half) + 1, lavaRow + 2);
+    const start = Math.max(0, camRow - Math.floor(half) + 2, lavaRow + 2);
     for (let r = Math.min(start, deepRow); r <= deepRow + 1; r++) {
       const empties: number[] = [];
-      for (let c = 1; c < this.cols - 1; c++) if (!this.isSolid(r, c) && !this.isSolid(r + 1, c) || (!this.isSolid(r, c) && r === deepRow)) empties.push(c);
+      for (let c = 1; c < this.cols - 1; c++) {
+        if ((!this.isSolid(r, c) && !this.isSolid(r + 1, c)) || (!this.isSolid(r, c) && r === deepRow)) empties.push(c);
+      }
       if (empties.length) {
         const c = empties[Math.floor(Math.random() * empties.length)];
         return this.center(r, c);
       }
     }
     const deepest = this.deepestWeapon();
-    if (deepest) return [deepest.x, deepest.y - this.B];
-    return [this.cols * this.B / 2, this.deepestY - this.B];
+    if (deepest) return [deepest.x, Math.max(this.lavaY + this.B * 0.5, deepest.y - this.B)];
+    return [this.cols * this.B / 2, Math.max(this.lavaY + this.B * 0.5, this.deepestY - this.B)];
   }
 
   deepestWeapon(): Weapon | null {
@@ -402,9 +453,10 @@ export class Mine {
     Matter.Composite.remove(this.engine.world, w.body);
     this.scene.remove(w.group);
     const p = this.to3(w.x, w.y);
-    this.sparks.burst(p.x, p.y, 0.8, 30, ELEMENT_INFO[w.def.element].color, 5, 0.8, -6);
-    this.debris.burst(p.x, p.y, 0.8, 20, 0x8a8a8a, 4, 0.8);
-    this.fx.text(p.x, p.y + 0.6, w.def.name + ' 碎裂', '#ff8080', 1.2, 0.4);
+    const meta = weaponElementMeta(w.def.element);
+    this.sparks.burst(p.x, p.y, 0.8, 24, meta.color, 4.5, 0.75, -6);
+    this.debris.burst(p.x, p.y, 0.8, 16, 0x8a8a8a, 4, 0.8);
+    this.fx.text(p.x, p.y + 0.6, w.def.name + (w.def.lifespanDecay ? ' 消散' : ' 碎裂'), '#ff9080', 1.15, 0.38);
     this.weapons = this.weapons.filter((o) => o !== w);
   }
 
@@ -425,11 +477,11 @@ export class Mine {
   private processHits() {
     for (const [w, t] of this.pendingHits) {
       if (w.dead) continue;
-      w.hitCd = BAL.hitCooldown;
+      w.hitCd = w.hitInterval;
       if (t.kind === 'block') {
         const b = this.block(t.r, t.c);
         if (!b) continue;
-        if (!w.invuln) w.hp -= BLOCKS[b.type].wear * this.mods.wearMul;
+        if (!w.invuln && !w.def.lifespanDecay) w.hp -= BLOCKS[b.type].wear * this.mods.wearMul;
         if (b.type === 'bedrock') continue;
         w.lastHit = this.time;
         this.damageCell(t.r, t.c, w.dmg, w.src('hit'));
@@ -479,16 +531,25 @@ export class Mine {
   damageCell(r: number, c: number, dmg: number, src: DmgSrc): boolean | null {
     const b = this.block(r, c);
     if (!b || b.type === 'bedrock' || c <= 0 || c >= this.cols - 1) return null;
-    b.hp -= dmg;
+    const i = this.idx(r, c);
+    let d = dmg;
+    if (src.kind !== 'dot') {
+      const st = this.status.get(i);
+      if (st) {
+        if (st.frostUntil > this.time) d *= 1.5;
+        if (st.venomUntil > this.time) d *= 1.5;
+      }
+    }
+    b.hp -= d;
     if (b.hp <= 0) {
       this.destroyBlock(r, c, src);
       return true;
     }
-    this.damaged.add(this.idx(r, c));
+    this.damaged.add(i);
     return false;
   }
 
-  private destroyBlock(r: number, c: number, src: DmgSrc) {
+  private destroyBlock(r: number, c: number, _src: DmgSrc) {
     const i = this.idx(r, c);
     const b = this.grid[i]!;
     this.grid[i] = null;
@@ -508,8 +569,10 @@ export class Mine {
     // plague spread
     const st = this.status.get(i);
     if (st && st.plague && st.poisonUntil > this.time) {
-      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (dr || dc) this.poisonCell(r + dr, c + dc, st.poisonDps, 3, true);
-      this.sparks.burst(p.x, p.y, 0.7, 12, 0x7ee05a, 2, 0.8, 0);
+      for (let dr = -1; dr <= 1; dr++)
+        for (let dc = -1; dc <= 1; dc++)
+          if (dr || dc) this.poisonCell(r + dr, c + dc, st.poisonDps, 3, true, st.venomUntil > this.time);
+      this.sparks.burst(p.x, p.y, 0.7, 10, 0x7ee05a, 2, 0.7, 0);
     }
     this.status.delete(i);
     if (b.type === 'core' && !this.ended) {
@@ -522,8 +585,9 @@ export class Mine {
     if (e.dead) return;
     let d = dmg * this.mods.enemyDmgMul;
     if (src.weapon?.def.id === 'boomerang' && e.frozen) d *= 2;
+    if (src.kind !== 'dot' && e.venomUntil > this.time) d *= 1.5;
     if (e instanceof Golem && e.shelled) {
-      if (src.kind === 'thunder' || src.kind === 'explosion') e.breakShell();
+      if (src.kind === 'thunder' || src.kind === 'explosion' || src.kind === 'holy') e.breakShell();
       else d *= 0.5;
     }
     e.hp -= d;
@@ -589,17 +653,24 @@ export class Mine {
     const i = this.idx(r, c);
     let s = this.status.get(i);
     if (!s) {
-      s = { poisonDps: 0, poisonUntil: 0, plague: false, burnDps: 0, burnUntil: 0 };
+      s = { poisonDps: 0, poisonUntil: 0, plague: false, venomUntil: 0, burnDps: 0, burnUntil: 0, frostUntil: 0 };
       this.status.set(i, s);
     }
     return s;
   }
-  poisonCell(r: number, c: number, dps: number, dur: number, plague: boolean) {
+  isCellPoisoned(r: number, c: number): boolean {
+    if (!this.inB(r, c)) return false;
+    const s = this.status.get(this.idx(r, c));
+    return !!s && s.poisonUntil > this.time;
+  }
+  poisonCell(r: number, c: number, dps: number, dur: number, plague: boolean, venom = false) {
     const s = this.cellStatus(r, c);
     if (!s) return;
-    s.poisonDps = s.poisonUntil > this.time ? Math.min(s.poisonDps + dps, dps * 5) : dps;
+    const capMul = venom ? 10 : 5;
+    s.poisonDps = s.poisonUntil > this.time ? Math.min(s.poisonDps + dps, dps * capMul) : dps;
     s.poisonUntil = Math.max(s.poisonUntil, this.time + dur);
     s.plague = s.plague || plague;
+    if (venom) s.venomUntil = Math.max(s.venomUntil, this.time + dur);
   }
   burnCell(r: number, c: number, dps: number, dur: number) {
     const s = this.cellStatus(r, c);
@@ -607,12 +678,19 @@ export class Mine {
     s.burnDps = Math.max(s.burnUntil > this.time ? s.burnDps : 0, dps);
     s.burnUntil = Math.max(s.burnUntil, this.time + dur);
   }
-  poisonEnemy(e: Enemy, dps: number, dur: number, stacks: number, plague: boolean) {
+  frostCell(r: number, c: number, dur: number) {
+    const s = this.cellStatus(r, c);
+    if (!s) return;
+    s.frostUntil = Math.max(s.frostUntil, this.time + dur);
+  }
+  poisonEnemy(e: Enemy, dps: number, dur: number, stacks: number, plague: boolean, maxStacks = 5, venom = false) {
     if (e.poisonUntil < this.time) e.poisonStacks = 0;
-    e.poisonStacks = Math.min(5, e.poisonStacks + stacks);
+    const cap = Math.max(maxStacks, e.venomUntil > this.time ? 10 : 5);
+    e.poisonStacks = Math.min(cap, e.poisonStacks + stacks);
     e.poisonDps = dps * e.poisonStacks;
     e.poisonUntil = this.time + dur;
     e.plague = e.plague || plague;
+    if (venom) e.venomUntil = Math.max(e.venomUntil, this.time + dur);
   }
   burnEnemy(e: Enemy, dps: number, dur: number) {
     e.burnDps = Math.max(e.burnUntil > this.time ? e.burnDps : 0, dps);
@@ -741,29 +819,32 @@ export class Mine {
       const r = Math.floor(i / this.cols), c = i % this.cols;
       const b = this.grid[i];
       if (!b) { this.status.delete(i); continue; }
-      const poisoned = s.poisonUntil > this.time, burning = s.burnUntil > this.time;
-      if (!poisoned && !burning) {
+      const poisoned = s.poisonUntil > this.time;
+      const burning = s.burnUntil > this.time;
+      const frosted = s.frostUntil > this.time;
+      if (!poisoned && !burning && !frosted) {
         this.typeMeshes.get(b.type)!.setColorAt(b.inst, this.tmpCol.setRGB(1, 1, 1));
         this.typeMeshes.get(b.type)!.instanceColor!.needsUpdate = true;
         this.status.delete(i);
         continue;
       }
-      const flick = 0.85 + Math.random() * 0.3;
-      if (burning && poisoned) this.tmpCol.setRGB(1.5 * flick, 1.1, 0.4);
-      else if (burning) this.tmpCol.setRGB(1.9 * flick, 0.9 * flick, 0.45);
-      else this.tmpCol.setRGB(0.6, 1.5, 0.5);
+      const flick = 0.94 + Math.random() * 0.1;
+      if (burning && poisoned) this.tmpCol.setRGB(1.3 * flick, 1.05, 0.45);
+      else if (burning) this.tmpCol.setRGB(1.45 * flick, 0.85 * flick, 0.48);
+      else if (poisoned) this.tmpCol.setRGB(0.68, 1.3, 0.55);
+      else this.tmpCol.setRGB(0.68, 0.96, 1.32);
       const im = this.typeMeshes.get(b.type)!;
       im.setColorAt(b.inst, this.tmpCol);
       im.instanceColor!.needsUpdate = true;
       const dps = (poisoned ? s.poisonDps : 0) + (burning ? s.burnDps : 0);
       const p = this.to3(...this.center(r, c));
-      if (burning && Math.random() < dt * 6) this.sparks.emit(p.x + (Math.random() - 0.5) * 0.8, p.y + 0.3, 0.6, 0, 1.2, 0, 0xff7a2a, 0.5, 0);
-      if (poisoned && Math.random() < dt * 3) this.sparks.emit(p.x + (Math.random() - 0.5) * 0.8, p.y + 0.3, 0.6, 0, 0.6, 0, 0x6ae04a, 0.6, 0);
+      if (burning && Math.random() < dt * 5) this.sparks.emit(p.x + (Math.random() - 0.5) * 0.8, p.y + 0.3, 0.6, 0, 1.2, 0, 0xff7a2a, 0.5, 0);
+      if (poisoned && Math.random() < dt * 2.5) this.sparks.emit(p.x + (Math.random() - 0.5) * 0.8, p.y + 0.3, 0.6, 0, 0.6, 0, 0x6ae04a, 0.6, 0);
       if (burning && Math.random() < dt * 0.25 * this.mods.fireSpreadMul) {
         const [dr, dc] = [[1, 0], [-1, 0], [0, 1], [0, -1]][Math.floor(Math.random() * 4)];
         this.burnCell(r + dr, c + dc, s.burnDps, 3);
       }
-      this.damageCell(r, c, dps * dt, { kind: 'dot' });
+      if (dps > 0) this.damageCell(r, c, dps * dt, { kind: 'dot' });
     }
     for (const e of [...this.enemies]) {
       let dps = 0;
@@ -790,9 +871,10 @@ export class Mine {
   private updateCamera(dt: number) {
     const dw = this.deepestWeapon();
     if (dw) this.lastFocusY = dw.y;
+    else this.lastFocusY = this.deepestY;
     const half = this.viewHalf()[1];
-    // keep the focus weapon in the upper-middle part of the screen
-    this.camTargetY = -this.lastFocusY / this.B - half * 0.25;
+    // Place the focus weapon slightly below screen centre so ~5.5~6.5 blocks of shaft are clearly visible ABOVE it!
+    this.camTargetY = -this.lastFocusY / this.B + half * 0.16;
     this.camY += (this.camTargetY - this.camY) * Math.min(1, dt * 3);
     const d = this.viewDist();
     const pitch = THREE.MathUtils.degToRad(14);
@@ -811,15 +893,16 @@ export class Mine {
   private updateLights() {
     const reqs: LightReq[] = [];
     const lavaP = this.to3(this.cols * this.B / 2, this.lavaY);
-    reqs.push({ x: lavaP.x, y: lavaP.y - 0.5, color: 0xff6a20, intensity: 10, dist: 9, prio: 9 });
+    reqs.push({ x: lavaP.x, y: lavaP.y - 0.5, color: 0xff6a20, intensity: 8, dist: 11, prio: 9 });
     for (const l of this.fx.flashLights) reqs.push({ ...l, intensity: l.intensity * (l.t / l.dur) });
     for (const w of this.weapons) {
       const p = this.to3(w.x, w.y);
-      reqs.push({ x: p.x, y: p.y, color: ELEMENT_INFO[w.def.element].color, intensity: w.ultReady >= 1 ? 4 : 2.5, dist: 5, prio: 3 });
+      const meta = weaponElementMeta(w.def.element);
+      reqs.push({ x: p.x, y: p.y, color: meta.color, intensity: w.ultReady >= 1 ? 3.2 : 2.2, dist: 5, prio: 3 });
     }
     if (this.boss) {
       const p = this.to3(this.boss.x, this.boss.y);
-      reqs.push({ x: p.x, y: p.y + 1, color: 0xff7a20, intensity: 4, dist: 6, prio: 2 });
+      reqs.push({ x: p.x, y: p.y + 1, color: 0xff7a20, intensity: 3.5, dist: 6, prio: 2 });
     }
     const cy = this.camY;
     reqs.sort((a, b) => b.prio - a.prio || Math.abs(a.y - cy) - Math.abs(b.y - cy));
@@ -901,7 +984,13 @@ export class Mine {
       if (w.dead) continue;
       w.update(dt);
       if (w.y > this.deepestY) this.deepestY = w.y;
-      if (w.y - 15 < this.lavaY) this.hurtWeapon(w, BAL.lavaDps * dt);
+      if (w.y - 12 < this.lavaY) {
+        this.hurtWeapon(w, BAL.lavaDps * dt);
+        if (Math.random() < dt * 15) {
+          const wp = this.to3(w.x, w.y);
+          this.sparks.emit(wp.x + (Math.random() - 0.5) * 0.6, wp.y, 0.95, (Math.random() - 0.5) * 2, 1.8, 0, 0xff7a20, 0.45, -2);
+        }
+      }
       if (w.hp <= 0) this.killWeapon(w);
     }
     for (const e of [...this.enemies]) {
@@ -912,18 +1001,43 @@ export class Mine {
     this.updateProjectiles(dt);
     this.updateStatus(dt);
 
-    // lava
+    // lava movement + approaching embers
     if (this.time > BAL.lavaGrace) this.lavaY += this.level.lavaSpeed * this.mods.lavaSpeedMul * this.B * dt;
     const ly = -this.lavaY / this.B;
     this.lava.position.y = ly + 30;
-    this.lavaGlow.position.y = ly - 0.3;
+    this.lavaCrust.position.y = ly;
+    this.lavaGlow.position.y = ly - 0.25;
     const lt = (this.lava.material as THREE.MeshBasicMaterial).map!;
     lt.offset.x = Math.sin(this.time * 0.3) * 0.1;
     lt.offset.y = this.time * 0.05;
-    if (Math.random() < dt * 8) this.sparks.emit((Math.random() - 0.5) * this.cols, ly, 0.8, 0, -0.5 - Math.random(), 0.5, 0xffa040, 0.8, -1);
+    if (Math.random() < dt * 10) {
+      this.sparks.emit((Math.random() - 0.5) * (this.cols - 2), ly - 0.1, 0.95, (Math.random() - 0.5) * 0.8, -1.2 - Math.random() * 1.5, 0.2, 0xff9830, 1.0, -2.5);
+    }
+    // Pre-warning falling embers from the top of the screen when lava is within 12 blocks!
+    const heat = this.lavaHeat;
+    if (heat > 0 && Math.random() < dt * (4 + heat * 18)) {
+      const [, half] = this.viewHalf();
+      const topThreeY = Math.min(ly, this.camY + half - 0.2);
+      this.sparks.emit(
+        (Math.random() - 0.5) * (this.cols - 2.2),
+        topThreeY,
+        0.95,
+        (Math.random() - 0.5) * 0.5,
+        -1.5 - Math.random() * 2.5,
+        0.1,
+        Math.random() < 0.4 ? 0xffd060 : 0xff6a20,
+        1.2,
+        -3,
+      );
+    }
 
-    if (this.lavaY >= this.deepestY - 4) this.end(false, '岩漿吞沒了礦坑');
-    else if (this.timeLeft <= 0) { this.timeLeft = 0; this.end(false, '時間到'); }
+    // New lose rule: lava must overtake deepest point AND all weapons on the field must be destroyed
+    if (this.lavaY >= this.deepestY && this.weapons.length === 0) {
+      this.end(false, '岩漿吞沒了最深處且場上武器全滅');
+    } else if (this.timeLeft <= 0) {
+      this.timeLeft = 0;
+      this.end(false, '時間到');
+    }
 
     this.updateCamera(dt);
     this.updateLights();
@@ -938,7 +1052,14 @@ export class Mine {
     return Math.min(1, Math.max(0, (this.deepestY / this.B - BAL.airRows) / this.level.depth));
   }
   get depthRows(): number { return Math.min(this.level.depth, Math.max(0, Math.floor(this.deepestY / this.B - BAL.airRows))); }
-  get lavaGap(): number { return Math.max(0, (this.deepestY - this.lavaY) / this.B); }
+  get lavaGap(): number { return (this.deepestY - this.lavaY) / this.B; }
+  /** 0..1 heat intensity when lava is active (or 3s before moving) and within `lavaWarnGap` blocks. */
+  get lavaHeat(): number {
+    if (this.time < BAL.lavaGrace - 3) return 0;
+    const gap = Math.max(0, this.lavaGap);
+    if (gap >= BAL.lavaWarnGap) return 0;
+    return Math.min(1, 1 - gap / BAL.lavaWarnGap);
+  }
 
   dispose() {
     Matter.World.clear(this.engine.world, false);

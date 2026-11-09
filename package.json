@@ -8,7 +8,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "share": "powershell -ExecutionPolicy Bypass -File scripts/tailscale-up.ps1",
+    "unshare": "powershell -ExecutionPolicy Bypass -File scripts/tailscale-down.ps1"
   },
   "dependencies": {
     "matter-js": "^0.20.0",

@@ -12,8 +12,8 @@
     <section id="board-pane" class="pane" aria-label="三消盤面">
       <div class="hud board-hud">
         <div class="board-top">
-          <ul id="reso" class="reso-row" aria-label="元素共鳴"></ul>
-          <button id="help-btn" class="icon-btn" type="button" aria-label="說明與武器圖鑑">?</button>
+          <ul id="reso" class="reso-row" role="list" aria-label="元素共鳴與累計條"></ul>
+          <button id="help-btn" class="wiki-btn" type="button" aria-label="開啟遊戲 Wiki">📖 Wiki</button>
         </div>
         <div id="combo" class="combo" aria-live="polite"></div>
       </div>
@@ -21,6 +21,7 @@
     </section>
 
     <section id="mine-pane" class="pane" aria-label="礦坑">
+      <div id="lava-heat" class="lava-heat" aria-hidden="true"></div>
       <div class="hud mine-hud">
         <div class="topbar">
           <span id="level-name" class="level-name"></span>
@@ -42,23 +43,25 @@
         </div>
         <div id="res" class="res-row" aria-label="資源"></div>
       </div>
-      <ul id="weapon-cards" class="cards" aria-label="場上武器"></ul>
+      <ul id="weapon-cards" class="cards" role="list" aria-label="場上武器"></ul>
     </section>
   </main>
 
   <dialog id="dlg-title" aria-labelledby="title-h" closedby="none">
     <h1 id="title-h" class="logo">Falling Weapons</h1>
-    <p class="subtitle">三消 × 落下武器・礦坑冒險</p>
+    <p class="subtitle">三消 × 落下武器・25 武器礦坑冒險</p>
     <ul class="howto">
-      <li><b>左邊三消</b>：一步（含連鎖）同色累計消 <b>4~6</b> 個 → 生成<b>初階武器</b>；消 <b>7+</b> 個 → <b>高階武器</b>。超過門檻越多，武器越強。</li>
-      <li>不到 4 個：累積該元素的<b>共鳴</b>，強化這一關所有同元素武器。</li>
-      <li><b>愛心</b>：場上所有武器回血；一次消 7 顆以上給 3 秒無敵。</li>
-      <li><b>右邊礦坑</b>：武器自動掉落挖礦、打怪、放大招。打穿<b>礦脈核心</b>或擊敗 <b>Boss</b> 過關。</li>
-      <li>小心：<b>岩漿</b>會從上方追下來，追上最深點或時間用完就失敗。</li>
+      <li><b>單步消除合成</b>：同色消 <b>3</b> → 低階｜<b>4~5</b> → 初階｜<b>6~8</b> → 高階｜<b>9+</b> → 傳說；全盤總消 <b>20+</b> → 降臨壽命型<b>【✨ 聖劍】</b>！</li>
+      <li><b>共鳴 × 累計合併條</b>：每消 1 顆同色 +1，滿 <b>30 顆</b>生成<b>【累計武器】</b>（刺客拳刃、火焰刀等）並使<b>共鳴 +1 級</b>（最高 Lv5）。</li>
+      <li><b>同名強化與解鎖</b>：共鳴未滿 Lv5 時，重複打出場上已有的武器會<b>回滿血＋強化傷害</b>；共鳴滿 <b>Lv5</b> 後解鎖多把同名並存！</li>
+      <li><b>愛心與岩漿</b>：愛心為全體武器補血（7+ 顆給 3 秒無敵）。岩漿逼近時頂端會浮現熱浪與火星，<b>淹過最深點且武器全滅</b>才算失敗。</li>
     </ul>
-    <form method="dialog">
-      <button class="btn primary" value="start" autofocus>開始冒險</button>
-    </form>
+    <div class="title-actions">
+      <form method="dialog">
+        <button class="btn primary" value="start" autofocus>開始冒險</button>
+      </form>
+      <button id="title-wiki-btn" class="btn" type="button">📖 遊戲 Wiki（全 25 武器）</button>
+    </div>
     <p class="credit">玩法靈感：<a href="https://github.com/vycdev/falling-pickaxe" target="_blank" rel="noopener">vycdev/falling-pickaxe</a></p>
   </dialog>
 
@@ -77,12 +80,15 @@
     </form>
   </dialog>
 
-  <dialog id="dlg-help" aria-labelledby="help-h" closedby="any">
-    <h2 id="help-h">武器圖鑑</h2>
-    <div id="help-body" class="help-body"></div>
-    <form method="dialog">
-      <button class="btn" value="close" autofocus>繼續遊戲</button>
-    </form>
+  <dialog id="dlg-wiki" class="wiki-dlg" aria-labelledby="wiki-h" closedby="any">
+    <div class="wiki-header">
+      <h2 id="wiki-h">📖 遊戲 Wiki 與全系統百科</h2>
+      <form method="dialog">
+        <button class="btn small" value="close" autofocus>關閉</button>
+      </form>
+    </div>
+    <div id="wiki-tabs" class="wiki-tabs" role="tablist" aria-label="Wiki 章節"></div>
+    <div id="wiki-panels" class="wiki-panels"></div>
   </dialog>
 
   <script type="module" src="/src/main.ts"></script>

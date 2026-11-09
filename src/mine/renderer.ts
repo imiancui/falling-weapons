@@ -29,8 +29,8 @@ export class MineRenderer {
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
     this.composer.addPass(this.renderPass);
-    // threshold > 1 so only emissive / HDR effects (lava, lightning, ults) bloom, not lit blocks
-    if (!FLAGS.has('nobloom')) this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), isLowQuality ? 0.5 : 0.7, 0.45, 1.05));
+    // threshold > 1 so only emissive / HDR effects bloom softly, never blinding
+    if (!FLAGS.has('nobloom')) this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), isLowQuality ? 0.3 : 0.42, 0.4, 1.08));
     if (!isLowQuality && !FLAGS.has('notilt')) {
       this.hTilt = new ShaderPass(HorizontalTiltShiftShader);
       this.vTilt = new ShaderPass(VerticalTiltShiftShader);
