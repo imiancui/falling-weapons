@@ -92,6 +92,61 @@ function noiseBlock(base: string, vary = 0.18, specks?: { color: string; n: numb
 const ore = (color: string) => noiseBlock('#7d7d82', 0.14, [{ color, n: 4, size: 2 }]);
 const deepOre = (color: string) => noiseBlock('#4a4a52', 0.14, [{ color, n: 4, size: 2 }]);
 
+function barrelBlockCanvas(): HTMLCanvasElement {
+  const [c, ctx] = canvas(16, 16);
+  // wooden staves
+  for (let y = 0; y < 16; y++)
+    for (let x = 0; x < 16; x++) {
+      const stave = x % 4 === 0 ? 0.78 : 1.0;
+      ctx.fillStyle = shade('#8c562c', stave * (0.92 + rnd() * 0.16));
+      ctx.fillRect(x, y, 1, 1);
+    }
+  // iron hoops
+  ctx.fillStyle = '#3c4048';
+  ctx.fillRect(0, 2, 16, 2);
+  ctx.fillRect(0, 12, 16, 2);
+  ctx.fillStyle = '#68707c';
+  ctx.fillRect(1, 2, 14, 1);
+  ctx.fillRect(1, 12, 14, 1);
+  // red danger band + bright fuse spark
+  ctx.fillStyle = '#c82e22';
+  ctx.fillRect(0, 5, 16, 6);
+  ctx.fillStyle = '#f25038';
+  ctx.fillRect(1, 6, 14, 1);
+  ctx.fillStyle = '#ffe898';
+  ctx.fillRect(7, 6, 2, 4);
+  ctx.fillRect(6, 7, 4, 2);
+  // bevel
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(0, 0, 1, 16); ctx.fillRect(15, 0, 1, 16);
+  ctx.fillRect(0, 15, 16, 1);
+  return c;
+}
+
+function crystalBlockCanvas(): HTMLCanvasElement {
+  const c = noiseBlock('#383448', 0.14);
+  const ctx = c.getContext('2d')!;
+  drawSprite(ctx, [
+    '................',
+    '.......oo.......',
+    '......oWWo......',
+    '.....oWLLMo.....',
+    '..oo.oWLLMo.oo..',
+    '.oWWooLMMMoOWWo.',
+    '.oWLLMLMMMMLWMo.',
+    '..oLMMPPPPMLMo..',
+    '..oMMPPLLPPMMo..',
+    '...oMPPLLPPMo...',
+    '...oMMMMMMMMo...',
+    '....ooMMMMoo....',
+    '......oooo......',
+    '................',
+    '................',
+    '................',
+  ], { o: '#161224', W: '#ffffff', L: '#9efcff', M: '#48c8e8', P: '#ff88d8', O: '#161224' });
+  return c;
+}
+
 function blockCanvas(type: BlockType): HTMLCanvasElement {
   switch (type) {
     case 'dirt': return noiseBlock('#7a5232', 0.2, [{ color: '#5b3a20', n: 5, size: 1 }]);
@@ -100,6 +155,8 @@ function blockCanvas(type: BlockType): HTMLCanvasElement {
     case 'obsidian': return noiseBlock('#1c1228', 0.25, [{ color: '#5a2d8a', n: 5, size: 2 }]);
     case 'bedrock': return noiseBlock('#3a3a3a', 0.45, [{ color: '#151515', n: 9, size: 2 }]);
     case 'core': return noiseBlock('#5a1f8a', 0.3, [{ color: '#e07bff', n: 8, size: 2 }, { color: '#ffffff', n: 2, size: 1 }]);
+    case 'barrel': return barrelBlockCanvas();
+    case 'crystal': return crystalBlockCanvas();
     case 'coal': return ore('#1a1a1a');
     case 'iron': return ore('#d8b89a');
     case 'copper': return ore('#e0763a');

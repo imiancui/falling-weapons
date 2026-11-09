@@ -14,6 +14,7 @@ interface TabSpec {
 
 const BLOCK_ORDER: BlockType[] = [
   'dirt', 'stone', 'deepslate', 'obsidian', 'bedrock', 'core',
+  'barrel', 'crystal',
   'coal', 'copper', 'iron', 'gold', 'redstone', 'lapis', 'diamond', 'emerald',
 ];
 
@@ -82,12 +83,18 @@ export function initWiki(dialog: HTMLDialogElement) {
 
 function renderRulesTab(): string {
   return `
+    <h3>行動力（聖水回氣制）與專注加成</h3>
+    <ul class="wiki-list">
+      <li><b>行動力槽</b>：基礎上限 <b>${BAL.staminaMax} 格</b>（開局滿格），每 <b>${BAL.staminaRegenSec} 秒</b>回復 1 格。每次<b>成功消除</b>消耗 1 格；<b>沒消成功的無效交換彈回時不扣行動力</b>！</li>
+      <li><b>滿格「專注加成」</b>：當行動力滿格未操作時，會自動蓄能<b>專注加成</b>（每秒 +2.5%，10 秒集滿最高 <b>+25%</b>），直接乘算在下一次成功消除產出／強化的所有武器倍率上！打完一波 5 步後可放心欣賞右邊礦坑 15~25 秒。</li>
+      <li><b>礦坑鏡頭巡視與鎖定</b>：在右側礦坑滑動<b>滑鼠滾輪或上下拖曳</b>可自由巡視各層洞穴、炸藥桶與岩漿位置；點擊底部任一張<b>武器小卡</b>可將鏡頭鎖定跟隨該把武器（點「🎯 回到自動跟隨」即可切回最深處）。</li>
+    </ul>
+
     <h3>遊戲目標與勝負判定</h3>
     <ul class="wiki-list">
-      <li><b>橫向雙畫面連動</b>：左側交換三消方塊來鍛造與強化武器；右側武器會靠 2D 物理重力掉入礦坑，自動彈跳撞擊方塊與怪物、並自動施放大招（直向螢幕時自動改為上礦坑、下三消）。</li>
-      <li><b>過關條件</b>：第 1、2 關挖到礦坑最底層並擊破任一格<b>「礦脈核心」</b>；第 3 關擊敗底部的 Boss<b>「岩石巨像」</b>。每過一關可從隨機 3 項強化（Perks）中選 1 項帶入後續關卡。</li>
-      <li><b>失敗條件 ①（岩漿吞沒）</b>：開關 ${BAL.lavaGrace} 秒後，上方岩漿開始持續向下推進（距離 ${BAL.lavaWarnGap} 格內頂端會出現紅熱浪與落火預警、6 格內可見岩漿本體逼近）。碰到岩漿的武器每秒承受 <b>${BAL.lavaDps} 點灼燒傷害</b>；當<b>「岩漿淹過目前挖到的最深點」且「場上所有武器皆歸零毀滅」</b>時判定失敗。</li>
-      <li><b>失敗條件 ②（時間耗盡）</b>：關卡倒數計時歸零仍未達成目標即失敗。</li>
+      <li><b>過關條件</b>：第 1、2 關挖到最底層擊破任一格<b>「礦脈核心」</b>；第 3 關擊敗底層 Boss<b>「岩石巨像」</b>。每過一關可挑選 1 張關間強化卡。</li>
+      <li><b>硬岩夾層與礦坑機關</b>：中深層設有深板岩＋黑曜石構成的<b>硬岩夾層</b>，可善用高階範圍武器或引爆埋設其中的<b>🧨 古老炸藥桶</b>（不傷我方武器）炸開缺口；擊破<b>💎 共鳴水晶簇</b>則會掉寶石並為全場武器回血 12%。</li>
+      <li><b>失敗條件</b>：開關 ${BAL.lavaGrace} 秒後岩漿開始下降（距離 ${BAL.lavaWarnGap} 格內頂端出現熱浪與落火預警）。當<b>「岩漿淹過最深點」且「場上所有武器皆歸零毀滅」</b>，或<b>關卡時間歸零</b>時判定失敗。</li>
     </ul>
 
     <h3>單步連鎖計數與武器產出表</h3>
@@ -176,9 +183,9 @@ function renderResonanceTab(): string {
 
     <h3>同名武器限制與滿級解鎖規則</h3>
     <ul class="wiki-list">
-      <li><b>共鳴未滿 Lv${BAL.resonanceMaxLv} 時（Lv0 ~ Lv4）</b>：每種武器在場上<b>最多同時存在 1 把</b>。當你再次打出已經在場上存活的同名武器時，不會多生一把，而是讓場上那把<b>立即回滿 100% HP</b>，並獲得<b>永久傷害強化 +${Math.round(BAL.dupBoost * 100)}%</b>（最多疊加 ${BAL.maxDupStacks} 次至 +100%）。</li>
+      <li><b>共鳴未滿 Lv${BAL.resonanceMaxLv} 時（Lv0 ~ Lv4）</b>：每種武器在場上<b>最多同時存在 1 把</b>。再次打出場上已存活的同名武器時，不會多生一把，而是讓場上那把<b>回復 ${Math.round(BAL.dupHealPct * 100)}% 最大 HP</b>，並獲得<b>永久傷害強化 +${Math.round(BAL.dupBoost * 100)}%</b>（最多疊加 ${BAL.maxDupStacks} 次至 +100%）。</li>
       <li><b>共鳴達到滿級（Lv${BAL.resonanceMaxLv}）後</b>：正式解鎖該元素所有武器的數量限制！再次打出同名武器時，會直接投入第 2 把、第 3 把同名武器一起狂轟礦坑！</li>
-      <li><b>聖劍的同名規則</b>：聖劍預設最多 1 把在場（重複觸發回滿血＋傷害 +${Math.round(BAL.holyDupBoost * 100)}%）；只要<b>任一元素達到共鳴 Lv${BAL.resonanceMaxLv}</b>，聖劍也同步解鎖可多把並存。</li>
+      <li><b>聖劍的同名規則</b>：聖劍預設最多 1 把在場（重複觸發回復 ${Math.round(BAL.dupHealPct * 100)}% 最大 HP＋傷害 +${Math.round(BAL.holyDupBoost * 100)}%）；只要<b>任一元素達到共鳴 Lv${BAL.resonanceMaxLv}</b>，聖劍也同步解鎖可多把並存。</li>
       <li><b>武器耐久與壽命</b>：一般武器撞擊方塊會依礦石硬度消耗少量耐久（越深越硬扣越多），被怪物攻擊或泡在岩漿中也會扣血；唯獨<b>聖劍</b>為壽命型，挖礦不耗損，改為每秒自然流失 5% HP（基礎 20 秒，可用愛心補血續命）。全場保留 ${BAL.maxWeapons} 把安全上限以維持流暢幀率。</li>
     </ul>
 

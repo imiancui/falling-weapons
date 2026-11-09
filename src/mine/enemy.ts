@@ -7,11 +7,11 @@ import type { Weapon } from './weapon';
 
 export interface EnemyStats { hp: number; name: string; range: number; dmg: number; cd: number; desc: string }
 export const ENEMY_STATS: Record<EnemyKind | 'golem', EnemyStats> = {
-  zombie: { hp: 40, name: '殭屍礦工', range: 1.4, dmg: 8, cd: 1.0, desc: '近戰怪物，武器進入 1.4 格內時每秒揮擊扣血' },
-  skeleton: { hp: 30, name: '骷髏弓手', range: 6, dmg: 6, cd: 2.2, desc: '遠程怪物，對 6 格內的武器發射箭矢造成傷害' },
-  mushroom: { hp: 25, name: '爆裂菇', range: 1.7, dmg: 25, cd: 1.0, desc: '武器靠近 1.7 格內會引信 1 秒後自爆，重創周圍武器與方塊' },
-  spider: { hp: 35, name: '洞穴蜘蛛', range: 4.5, dmg: 0, cd: 4.0, desc: '對 4.5 格內的武器吐出蛛網，命中後使武器下墜與旋轉大幅減速 1.5 秒' },
-  golem: { hp: 6000, name: '岩石巨像', range: 0, dmg: 5, cd: 0.5, desc: '第 3 關底部 Boss：施放落石雨、召喚洞穴小怪，並展開減傷 50% 的岩殼（可用雷電、爆炸或神聖攻擊直接擊碎）' },
+  zombie: { hp: 95, name: '殭屍礦工', range: 1.4, dmg: 14, cd: 1.0, desc: '高血量近戰怪物，武器進入 1.4 格內時每秒重擊扣血' },
+  skeleton: { hp: 75, name: '骷髏弓手', range: 6, dmg: 12, cd: 2.0, desc: '遠程怪物，對 6 格內的武器發射強力骨箭造成傷害' },
+  mushroom: { hp: 65, name: '爆裂菇', range: 1.7, dmg: 42, cd: 1.0, desc: '武器靠近 1.7 格內會引信 1 秒後自爆，重創周圍武器與方塊' },
+  spider: { hp: 85, name: '洞穴蜘蛛', range: 4.5, dmg: 6, cd: 3.6, desc: '對 4.5 格內的武器吐出毒網，造成傷害並使武器下墜與旋轉大幅減速 2.2 秒' },
+  golem: { hp: 7500, name: '岩石巨像', range: 0, dmg: 10, cd: 0.5, desc: '第 3 關底部 Boss：施放落石雨、召喚洞穴小怪，並展開減傷 50% 的岩殼（可用雷電、爆炸或神聖攻擊直接擊碎）' },
 };
 
 const hpBarGeo = new THREE.PlaneGeometry(1, 0.1);
@@ -161,7 +161,7 @@ export class Enemy {
           const dx = w.x - this.x, dy = w.y - this.y;
           const d = Math.hypot(dx, dy) || 1;
           const sp = 5 * m.B;
-          m.addProjectile({ kind: 'web', x: this.x, y: this.y, vx: (dx / d) * sp, vy: (dy / d) * sp, r: 10, life: 2, from: 'enemy', dmg: 0 });
+          m.addProjectile({ kind: 'web', x: this.x, y: this.y, vx: (dx / d) * sp, vy: (dy / d) * sp, r: 10, life: 2, from: 'enemy', dmg: st.dmg });
         }
         break;
       }
@@ -222,7 +222,7 @@ export class Golem extends Enemy {
       for (let i = 0; i < 6; i++) {
         const target = m.weapons.length ? m.weapons[Math.floor(Math.random() * m.weapons.length)] : null;
         const x = target ? target.x + (Math.random() - 0.5) * B * 2 : B * (1.5 + Math.random() * 6);
-        m.addProjectile({ kind: 'rock', x: Math.min(B * 7.6, Math.max(B * 1.4, x)), y: topY - Math.random() * B * 2, vx: 0, vy: 6 * B, r: 12, life: 4, from: 'enemy', dmg: 10, passThrough: true });
+        m.addProjectile({ kind: 'rock', x: Math.min(B * 7.6, Math.max(B * 1.4, x)), y: topY - Math.random() * B * 2, vx: 0, vy: 6 * B, r: 12, life: 4, from: 'enemy', dmg: 16, passThrough: true });
       }
     }
     this.summonT -= dt;

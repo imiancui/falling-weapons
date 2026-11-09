@@ -25,6 +25,9 @@ interface TileView {
 }
 
 export interface Match3Callbacks {
+  canSwap: () => boolean;
+  onNoStamina: () => void;
+  onValidSwap: () => void;
   onStep: (counts: number[]) => void; // running counts during a move
   onMoveEnd: (counts: number[]) => void;
 }
@@ -60,6 +63,8 @@ export class Match3 {
   private padTop = 0;
   private padBottom = 0;
   private unitsPerPx = 0.01;
+  private ambLight: THREE.AmbientLight;
+  private dirLight: THREE.DirectionalLight;
   enabled = false;
 
   constructor(private container: HTMLElement, private cb: Match3Callbacks) {
@@ -74,10 +79,11 @@ export class Match3 {
 
     this.scene.background = new THREE.Color(0x140f18);
     this.camera.position.set(0, 0, 20);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-    const dir = new THREE.DirectionalLight(0xfff0dd, 2.2);
-    dir.position.set(-4, 6, 10);
-    this.scene.add(dir);
+    this.ambLight = new THREE.AmbientLight(0xffffff, 0.9);
+    this.scene.add(this.ambLight);
+    this.dirLight = new THREE.DirectionalLight(0xfff0dd, 2.2);
+    this.dirLight.position.set(-4, 6, 10);
+    this.scene.add(this.dirLight);
     const rim = new THREE.DirectionalLight(0x6a8aff, 0.7);
     rim.position.set(5, -4, 6);
     this.scene.add(rim);
@@ -258,9 +264,18 @@ export class Match3 {
     return new Promise((resolve) => this.timers.push({ t: sec, resolve }));
   }
 
+  setStaminaReady(ready: boolean) {
+    this.ambLight.intensity = ready ? 0.9 : 0.62;
+    this.dirLight.intensity = ready ? 2.2 : 1.45;
+  }
+
   // ------------------------------------------------------------ resolution
   private async trySwap(a: [number, number], b: [number, number]) {
     if (this.locked) return;
+    if (!this.cb.canSwap()) {
+      this.cb.onNoStamina();
+      return;
+    }
     const ta = this.grid[a[0]][a[1]], tb = this.grid[b[0]][b[1]];
     if (!ta || !tb) return;
     this.locked = true;
@@ -278,6 +293,8 @@ export class Match3 {
       this.locked = false;
       return;
     }
+    // Valid swap! Deduct stamina now (invalid swaps above are free).
+    this.cb.onValidSwap();
     const total = new Array(TILE_KINDS).fill(0);
     const combo = comboEffects(this.grid, b, a);
     let step: ClearStep;

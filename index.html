@@ -15,6 +15,14 @@
           <ul id="reso" class="reso-row" role="list" aria-label="元素共鳴與累計條"></ul>
           <button id="help-btn" class="wiki-btn" type="button" aria-label="開啟遊戲 Wiki">📖 Wiki</button>
         </div>
+        <div id="stamina-row" class="stamina-row">
+          <span id="stamina-lbl" class="stamina-lbl">⚡ 行動力 5/5</span>
+          <div class="stamina-track-wrap">
+            <progress id="stamina-prog" class="stamina-prog" max="5" value="5" aria-labelledby="stamina-lbl"></progress>
+            <div id="stamina-ticks" class="stamina-ticks" aria-hidden="true"></div>
+          </div>
+          <span id="focus-badge" class="focus-badge" hidden>✨ 專注 +0%</span>
+        </div>
         <div id="combo" class="combo" aria-live="polite"></div>
       </div>
       <div id="toasts" class="toasts" aria-live="polite"></div>
@@ -43,7 +51,8 @@
         </div>
         <div id="res" class="res-row" aria-label="資源"></div>
       </div>
-      <ul id="weapon-cards" class="cards" role="list" aria-label="場上武器"></ul>
+      <button id="cam-reset-btn" class="cam-reset-btn" type="button" hidden>🎯 回到自動跟隨</button>
+      <ul id="weapon-cards" class="cards" role="list" aria-label="場上武器（點擊可鎖定鏡頭跟隨）"></ul>
     </section>
   </main>
 
@@ -51,10 +60,9 @@
     <h1 id="title-h" class="logo">Falling Weapons</h1>
     <p class="subtitle">三消 × 落下武器・25 武器礦坑冒險</p>
     <ul class="howto">
-      <li><b>單步消除合成</b>：同色消 <b>3</b> → 低階｜<b>4~5</b> → 初階｜<b>6~8</b> → 高階｜<b>9+</b> → 傳說；全盤總消 <b>20+</b> → 降臨壽命型<b>【✨ 聖劍】</b>！</li>
-      <li><b>共鳴 × 累計合併條</b>：每消 1 顆同色 +1，滿 <b>30 顆</b>生成<b>【累計武器】</b>（刺客拳刃、火焰刀等）並使<b>共鳴 +1 級</b>（最高 Lv5）。</li>
-      <li><b>同名強化與解鎖</b>：共鳴未滿 Lv5 時，重複打出場上已有的武器會<b>回滿血＋強化傷害</b>；共鳴滿 <b>Lv5</b> 後解鎖多把同名並存！</li>
-      <li><b>愛心與岩漿</b>：愛心為全體武器補血（7+ 顆給 3 秒無敵）。岩漿逼近時頂端會浮現熱浪與火星，<b>淹過最深點且武器全滅</b>才算失敗。</li>
+      <li><b>行動力回氣制</b>：上限 <b>5 格</b>、每 <b>4 秒</b>回 1 格（沒消成功不扣格）；滿格未操作會蓄能<b>【專注加成 最高 +25%】</b>，打完一波就能放心欣賞右邊礦坑演出！</li>
+      <li><b>單步與累計鍛造</b>：同色消 <b>3</b> 低階｜<b>4~5</b> 初階｜<b>6~8</b> 高階｜<b>9+</b> 傳說｜全盤總消 <b>20+</b> 聖劍；每累計滿 <b>30 顆</b>生成累計武器並提升<b>元素共鳴（滿 Lv5 解鎖同名多把）</b>。</li>
+      <li><b>礦坑機關與鏡頭巡視</b>：引爆硬岩層中的<b>🧨 炸藥桶</b>破開通路、擊破<b>💎 水晶簇</b>全體回血；右側可用<b>滾輪／上下拖曳巡視礦坑</b>，或<b>點底部武器卡鎖定鏡頭</b>！</li>
     </ul>
     <div class="title-actions">
       <form method="dialog">

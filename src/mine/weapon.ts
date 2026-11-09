@@ -142,14 +142,16 @@ export class Weapon {
     }
     const upgraded = this.dupStacks < BAL.maxDupStacks;
     if (upgraded) this.dupStacks++;
-    this.hp = this.maxHp;
+    const healAmt = this.maxHp * BAL.dupHealPct;
+    this.hp = Math.min(this.maxHp, this.hp + healAmt);
     const p = this.m.to3(this.x, this.y);
     const meta = weaponElementMeta(this.def.element);
     this.m.fx.ring(p.x, p.y, 1.35, meta.color, 0.45);
+    const healPctText = Math.round(BAL.dupHealPct * 100);
     this.m.fx.text(
       p.x, p.y + 0.9,
-      upgraded ? `${this.def.name} +${Math.round((this.dupMul - 1) * 100)}% 滿血！` : `${this.def.name} 回滿血！`,
-      meta.css, 1.25, 0.48,
+      upgraded ? `${this.def.name} +${Math.round((this.dupMul - 1) * 100)}% & +${healPctText}%HP！` : `${this.def.name} +${healPctText}%HP！`,
+      meta.css, 1.25, 0.46,
     );
     return upgraded;
   }

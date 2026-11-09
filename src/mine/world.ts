@@ -46,6 +46,7 @@ export interface MineCallbacks {
 
 const BLOCK_TINT: Partial<Record<BlockType, number>> = {
   dirt: 0x7a5232, stone: 0x7d7d82, deepslate: 0x4a4a52, obsidian: 0x3a2050, core: 0xc070ff,
+  barrel: 0xd85028, crystal: 0x78e8ff,
   coal: 0x333333, iron: 0xd8b89a, copper: 0xe0763a, gold: 0xffd84a, redstone: 0xff2a2a, lapis: 0x2a5aff, diamond: 0x5affee, emerald: 0x2aff6a,
 };
 
@@ -76,6 +77,8 @@ export class Mine {
   shieldUntil = 0;
   private camY = 0;
   private camTargetY = 0;
+  private isManualCam = false;
+  lockedWeaponUid: number | null = null;
   private aspect = 1;
   private lastFocusY: number;
   private lava: THREE.Mesh;
@@ -216,8 +219,28 @@ export class Mine {
         let t: BlockType = f < 0.08 ? 'dirt' : f < 0.5 ? 'stone' : 'deepslate';
         const rr = Math.random();
         if (f > 0.55 && rr < 0.035) t = 'obsidian';
-        else if (f >= 0.08 && rr < 0.15) t = pickOre(f);
+        else if (f >= 0.1 && rr < 0.022) t = 'barrel';
+        else if (f >= 0.18 && rr >= 0.022 && rr < 0.038) t = 'crystal';
+        else if (f >= 0.08 && rr < 0.16) t = pickOre(f);
         types[this.idx(r, c)] = t;
+      }
+    }
+    // hard rock strata bands (deepslate + obsidian + 1~2 embedded powder barrels to reward smart detonation!)
+    const bands = L.hardBands ?? 2;
+    for (let bIdx = 1; bIdx <= bands; bIdx++) {
+      const bandRow = A + Math.floor((L.depth * bIdx) / (bands + 1));
+      if (bandRow < A + 8 || bandRow >= A + L.depth - 4) continue;
+      for (let r = bandRow; r <= bandRow + 1; r++) {
+        for (let c = 1; c < this.cols - 1; c++) {
+          types[this.idx(r, c)] = Math.random() < (0.35 + bIdx * 0.1) ? 'obsidian' : 'deepslate';
+        }
+      }
+      // place 1~2 powder barrels right on the top row of the hard band as tactical weak points
+      const barrelCol = 2 + Math.floor(Math.random() * (this.cols - 4));
+      types[this.idx(bandRow, barrelCol)] = 'barrel';
+      if (Math.random() < 0.6) {
+        const col2 = 1 + Math.floor(Math.random() * (this.cols - 2));
+        types[this.idx(bandRow - 1, col2)] = 'barrel';
       }
     }
     // caves
@@ -232,6 +255,13 @@ export class Mine {
           if (dx * dx + dy * dy <= 1 && r >= A + 3 && r < A + L.depth - 2) types[this.idx(r, c)] = null;
         }
       caves.push([rc, cc]);
+      // occasional barrel or crystal on cave rim
+      if (Math.random() < 0.55) {
+        const rimC = Math.max(1, Math.min(this.cols - 2, cc + (Math.random() < 0.5 ? -2 : 2)));
+        if (types[this.idx(rc, rimC)]) {
+          types[this.idx(rc, rimC)] = Math.random() < 0.55 ? 'barrel' : 'crystal';
+        }
+      }
     }
     // goal
     if (L.goal === 'core') {
@@ -258,10 +288,15 @@ export class Mine {
         mat.emissiveMap = Tex.block(t);
         mat.emissiveIntensity = 0.9;
       }
-      if (t === 'diamond' || t === 'emerald' || t === 'redstone' || t === 'gold' || t === 'lapis') {
+      if (t === 'diamond' || t === 'emerald' || t === 'redstone' || t === 'gold' || t === 'lapis' || t === 'barrel') {
         mat.emissive = new THREE.Color(0xffffff);
         mat.emissiveMap = Tex.block(t);
-        mat.emissiveIntensity = 0.12;
+        mat.emissiveIntensity = t === 'barrel' ? 0.22 : 0.12;
+      }
+      if (t === 'crystal') {
+        mat.emissive = new THREE.Color(0xffffff);
+        mat.emissiveMap = Tex.block(t);
+        mat.emissiveIntensity = 0.5;
       }
       const im = new THREE.InstancedMesh(geo, mat, n);
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -575,7 +610,15 @@ export class Mine {
       this.sparks.burst(p.x, p.y, 0.7, 10, 0x7ee05a, 2, 0.7, 0);
     }
     this.status.delete(i);
-    if (b.type === 'core' && !this.ended) {
+    if (b.type === 'barrel') {
+      const [cx, cy] = this.center(r, c);
+      this.fx.text(p.x, p.y + 0.5, '🧨 轟爆！', '#ffaa48', 0.9, 0.42);
+      this.explode(cx, cy, BAL.barrelRad, BAL.barrelDmg * this.level.hpMul, { kind: 'explosion' });
+    } else if (b.type === 'crystal') {
+      this.healAll(BAL.crystalHealPct);
+      this.fx.ring(p.x, p.y, 2.2, 0x7ef4ff, 0.5);
+      this.fx.text(p.x, p.y + 0.5, `💎 水晶治癒 +${Math.round(BAL.crystalHealPct * 100)}%`, '#7ef4ff', 1.15, 0.44);
+    } else if (b.type === 'core' && !this.ended) {
       this.fx.explosion(p.x, p.y, 3, 0xd080ff);
       this.end(true, '擊破礦脈核心！');
     }
@@ -761,8 +804,10 @@ export class Mine {
       if (alive && p.from === 'enemy') {
         for (const w of this.weapons) {
           if (Math.hypot(w.x - p.x, w.y - p.y) < p.r + 18 * w.scale) {
-            if (p.kind === 'web') { if (!w.invuln) w.webbedUntil = this.time + 1.5; }
-            else this.hurtWeapon(w, p.dmg);
+            if (p.kind === 'web') {
+              if (!w.invuln) w.webbedUntil = this.time + 2.2;
+              if (p.dmg > 0) this.hurtWeapon(w, p.dmg);
+            } else this.hurtWeapon(w, p.dmg);
             alive = false;
             break;
           }
@@ -868,14 +913,52 @@ export class Mine {
   }
   viewTopY(): number { return (-this.camY - this.viewHalf()[1]) * this.B; }
 
+  get cameraMode(): 'auto' | 'manual' | 'locked' {
+    if (this.isManualCam) return 'manual';
+    if (this.lockedWeaponUid !== null) return 'locked';
+    return 'auto';
+  }
+
+  panCamera(deltaBlocks: number) {
+    this.isManualCam = true;
+    this.lockedWeaponUid = null;
+    const minY = -(this.rows - 3);
+    const maxY = 1.5;
+    this.camTargetY = Math.max(minY, Math.min(maxY, this.camTargetY + deltaBlocks));
+    this.camY = this.camTargetY;
+  }
+
+  toggleLockWeapon(uid: number) {
+    if (this.lockedWeaponUid === uid && !this.isManualCam) {
+      this.resetCameraFollow();
+      return;
+    }
+    if (this.weapons.some((w) => !w.dead && w.uid === uid)) {
+      this.lockedWeaponUid = uid;
+      this.isManualCam = false;
+    }
+  }
+
+  resetCameraFollow() {
+    this.isManualCam = false;
+    this.lockedWeaponUid = null;
+  }
+
   private updateCamera(dt: number) {
-    const dw = this.deepestWeapon();
-    if (dw) this.lastFocusY = dw.y;
-    else this.lastFocusY = this.deepestY;
     const half = this.viewHalf()[1];
-    // Place the focus weapon slightly below screen centre so ~5.5~6.5 blocks of shaft are clearly visible ABOVE it!
-    this.camTargetY = -this.lastFocusY / this.B + half * 0.16;
-    this.camY += (this.camTargetY - this.camY) * Math.min(1, dt * 3);
+    if (!this.isManualCam) {
+      let focusW: Weapon | null = null;
+      if (this.lockedWeaponUid !== null) {
+        focusW = this.weapons.find((w) => !w.dead && w.uid === this.lockedWeaponUid) ?? null;
+        if (!focusW) this.lockedWeaponUid = null; // auto-unlock if destroyed
+      }
+      if (!focusW) focusW = this.deepestWeapon();
+      if (focusW) this.lastFocusY = focusW.y;
+      else this.lastFocusY = this.deepestY;
+      // Place focus weapon slightly below screen centre so ~5.5~6.5 blocks of shaft are clearly visible ABOVE it!
+      this.camTargetY = -this.lastFocusY / this.B + half * 0.16;
+    }
+    this.camY += (this.camTargetY - this.camY) * Math.min(1, dt * (this.isManualCam ? 12 : 3.2));
     const d = this.viewDist();
     const pitch = THREE.MathUtils.degToRad(14);
     const sx = (Math.random() - 0.5) * this.fx.shake, sy = (Math.random() - 0.5) * this.fx.shake;

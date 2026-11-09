@@ -36,6 +36,12 @@ export function weaponElementMeta(el: WeaponElement): { name: string; color: num
 }
 
 export const BAL = {
+  // ---- stamina & focus (Clash Royale Elixir-style) ----
+  staminaMax: 5,
+  staminaRegenSec: 4.0, // seconds per 1 stamina point
+  focusRatePerSec: 0.025, // +2.5% weapon power per sec while stamina is full
+  focusMax: 0.25, // up to +25% bonus on next valid move
+
   // ---- match-3 thresholds ----
   boardSize: 8,
   t0Threshold: 3, // 低階：同色一步消 3
@@ -46,8 +52,9 @@ export const BAL = {
   cumThreshold: 30, // 累計武器 + 共鳴升 1 級：每累計 30 個同色方塊
   resonanceMaxLv: 5, // 共鳴滿級 Lv5（解鎖同名武器多把並存）
   powerPerExtra: 0.12, // +12% 傷害與 HP / 每超過門檻 1 顆
-  dupBoost: 0.20, // 未滿 Lv5 重複觸發同名武器：回滿血 + 傷害強化 +20%
-  holyDupBoost: 0.25, // 聖劍重複觸發：回滿血 + 傷害強化 +25%
+  dupBoost: 0.20, // 未滿 Lv5 重複觸發同名武器：傷害強化 +20%
+  holyDupBoost: 0.25, // 聖劍重複觸發：傷害強化 +25%
+  dupHealPct: 0.40, // 重複觸發同名武器時回復 40% 最大 HP（不再直接 100% 滿血）
   maxDupStacks: 5,
   heartHealPct: 0.08, // 每顆愛心回復最大 HP 8%
   heartShieldCount: 7,
@@ -64,9 +71,12 @@ export const BAL = {
   hitCooldown: 0.2, // s between weapon hits
   hopIdle: 0.7, // s without hitting before weapon hops
   maxWeapons: 18, // 全場硬體安全上限
+  barrelRad: 2.4, // 炸藥桶爆炸半徑（格）
+  barrelDmg: 165, // 炸藥桶基礎破岩／炸怪傷害（不傷我方武器）
+  crystalHealPct: 0.12, // 水晶簇打破時全體武器回血 12%
 
   // ---- lava ----
-  lavaGrace: 25,
+  lavaGrace: 30,
   lavaDps: 45,
   lavaWarnGap: 12, // 距離 12 格內顯示頂端熱浪與落火預警
 
@@ -79,7 +89,7 @@ export const BAL = {
   holyHp: 300,
   holyDecayPct: 0.05, // 聖劍每秒流失 5% 最大 HP（基礎壽命 20 秒）
   spawnInvuln: 0,
-  starterWeapon: true, // 開局贈送一把低階／初階武器
+  starterWeapon: false, // 取消免費開局武器，由玩家開局 5 格行動力自行布局
 } as const;
 
 export interface ResonanceFx {
@@ -100,16 +110,19 @@ export const RESONANCE: ResonanceFx = {
 // ---------------- blocks ----------------
 export type BlockType =
   | 'dirt' | 'stone' | 'deepslate' | 'obsidian' | 'bedrock' | 'core'
+  | 'barrel' | 'crystal'
   | 'coal' | 'iron' | 'copper' | 'gold' | 'redstone' | 'lapis' | 'diamond' | 'emerald';
 
 export interface BlockInfo { hp: number; wear: number; ore?: string; name: string; depthNote: string }
 export const BLOCKS: Record<BlockType, BlockInfo> = {
   dirt: { hp: 30, wear: 0.4, name: '泥土', depthNote: '表層（前 8% 深度）' },
   stone: { hp: 60, wear: 0.8, name: '石頭', depthNote: '淺中層（8%~50% 深度）' },
-  deepslate: { hp: 100, wear: 1.2, name: '深板岩', depthNote: '深層（50% 以下）' },
-  obsidian: { hp: 240, wear: 2.5, name: '黑曜石', depthNote: '深層稀有高硬度岩塊（55% 以下）' },
+  deepslate: { hp: 100, wear: 1.2, name: '深板岩', depthNote: '深層與硬岩夾層' },
+  obsidian: { hp: 240, wear: 2.5, name: '黑曜石', depthNote: '硬岩夾層與深層高硬度岩塊' },
   bedrock: { hp: Infinity, wear: 1.5, name: '基岩', depthNote: '礦坑左右邊界與最底層（無法破壞）' },
   core: { hp: 400, wear: 1, name: '礦脈核心', depthNote: '第 1、2 關最底部目標（擊破任一格即過關）' },
+  barrel: { hp: 35, wear: 0.5, name: '古老炸藥桶', depthNote: '硬岩夾層與洞穴旁（擊破引爆 2.4 格破岩炸怪，不傷我方武器）' },
+  crystal: { hp: 45, wear: 0.6, ore: 'diamond', name: '共鳴水晶簇', depthNote: '中深層與洞穴旁（擊破掉寶石並為全場武器回 12% HP）' },
   coal: { hp: 70, wear: 0.8, ore: 'coal', name: '煤礦', depthNote: '淺中層常見礦脈' },
   copper: { hp: 75, wear: 0.9, ore: 'copper', name: '銅礦', depthNote: '淺層礦脈' },
   iron: { hp: 80, wear: 0.9, ore: 'iron', name: '鐵礦', depthNote: '全深度常見礦脈' },
@@ -132,14 +145,15 @@ export interface LevelDef {
   lavaSpeed: number; // rows / s
   hpMul: number;
   caves: number;
+  hardBands: number; // horizontal hard rock strata bands
   enemies: Partial<Record<EnemyKind, number>>; // spawn weights
   enemyHpMul: number;
   goal: 'core' | 'boss';
 }
 export const LEVELS: LevelDef[] = [
-  { name: '第 1 關・淺層礦道', depth: 60, time: 240, lavaSpeed: 0.35, hpMul: 1.0, caves: 6, enemies: { zombie: 3, mushroom: 2 }, enemyHpMul: 1, goal: 'core' },
-  { name: '第 2 關・深層礦脈', depth: 100, time: 270, lavaSpeed: 0.4, hpMul: 1.25, caves: 10, enemies: { zombie: 3, skeleton: 2, mushroom: 2, spider: 2 }, enemyHpMul: 1.3, goal: 'core' },
-  { name: '第 3 關・巨像之巢', depth: 150, time: 300, lavaSpeed: 0.45, hpMul: 1.5, caves: 14, enemies: { zombie: 3, skeleton: 3, mushroom: 2, spider: 3 }, enemyHpMul: 1.6, goal: 'boss' },
+  { name: '第 1 關・淺層礦道', depth: 60, time: 270, lavaSpeed: 0.24, hpMul: 1.0, caves: 7, hardBands: 2, enemies: { zombie: 3, mushroom: 2, spider: 1 }, enemyHpMul: 1.0, goal: 'core' },
+  { name: '第 2 關・深層礦脈', depth: 100, time: 330, lavaSpeed: 0.28, hpMul: 1.25, caves: 11, hardBands: 3, enemies: { zombie: 3, skeleton: 2.5, mushroom: 2, spider: 2.5 }, enemyHpMul: 1.3, goal: 'core' },
+  { name: '第 3 關・巨像之巢', depth: 150, time: 390, lavaSpeed: 0.32, hpMul: 1.5, caves: 15, hardBands: 4, enemies: { zombie: 3, skeleton: 3, mushroom: 2.5, spider: 3 }, enemyHpMul: 1.6, goal: 'boss' },
 ];
 
 // ---------------- run modifiers (perks) ----------------
@@ -160,6 +174,8 @@ export interface Mods {
   aoeBonus: number; // + radius in blocks for explosions/axe
   resonanceStartLv: number;
   wearMul: number;
+  staminaMaxBonus: number;
+  staminaRegenMul: number;
 }
 export function defaultMods(): Mods {
   return {
@@ -179,11 +195,15 @@ export function defaultMods(): Mods {
     aoeBonus: 0,
     resonanceStartLv: 0,
     wearMul: 1,
+    staminaMaxBonus: 0,
+    staminaRegenMul: 1,
   };
 }
 
 export interface PerkDef { id: string; name: string; desc: string; icon: string; apply: (m: Mods) => void; max?: number }
 export const PERKS: PerkDef[] = [
+  { id: 'stamina_spd', name: '行雲流水', desc: '行動力回復速度 +20%', icon: '🍃', max: 2, apply: (m) => { m.staminaRegenMul *= 1.2; } },
+  { id: 'stamina_max', name: '氣海擴充', desc: '行動力上限 +1 格（每關開局補滿）', icon: '🔋', max: 2, apply: (m) => { m.staminaMaxBonus += 1; } },
   { id: 'dmg', name: '鍛造大師', desc: '所有武器傷害 +20%', icon: '⚔️', apply: (m) => { m.dmgMul += 0.2; } },
   { id: 'hp', name: '強韌鋼材', desc: '武器最大 HP +25%', icon: '🛡️', apply: (m) => { m.hpMul += 0.25; } },
   { id: 'heal', name: '生命之心', desc: '愛心回血量 +50%', icon: '💗', apply: (m) => { m.healMul += 0.5; } },

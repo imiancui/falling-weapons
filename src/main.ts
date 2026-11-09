@@ -11,6 +11,7 @@ import { MineRenderer } from './mine/renderer';
 import { initWiki } from './ui/wiki';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+const UNLIMITED_STAMINA = new URLSearchParams(location.search).has('nostamina');
 
 // ------------------------------------------------------------------ state
 type State = 'title' | 'play' | 'ending' | 'perk' | 'result' | 'paused';
@@ -24,19 +25,77 @@ const run = {
 };
 let resonance: Record<Element, number> = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
 let cumGauge: Record<Element, number> = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
+let stamina: number = BAL.staminaMax;
+let focusBonus = 0; // 0 .. BAL.focusMax (0.25)
+let activeMoveFocusMul = 1; // captured when a valid swap starts
+let noStaminaWarnT = 0;
 let mine: Mine | null = null;
+
+function maxStamina(): number {
+  return BAL.staminaMax + run.mods.staminaMaxBonus;
+}
+function staminaRegenSec(): number {
+  return BAL.staminaRegenSec / run.mods.staminaRegenMul;
+}
 
 const mineRenderer = new MineRenderer($('mine-pane'));
 const board = new Match3($('board-pane'), {
+  canSwap: () => UNLIMITED_STAMINA || stamina >= 1 - 1e-6,
+  onNoStamina: () => {
+    noStaminaWarnT = 0.45;
+    const rem = Math.max(0.1, (1 - stamina) * staminaRegenSec());
+    toast(`行動力不足（${rem.toFixed(1)} 秒後回復 1 格）`, '#c898ff');
+  },
+  onValidSwap: () => {
+    activeMoveFocusMul = 1 + focusBonus;
+    focusBonus = 0;
+    if (!UNLIMITED_STAMINA) stamina = Math.max(0, stamina - 1);
+  },
   onStep: (counts) => renderCombo(counts),
   onMoveEnd: (counts) => onMoveEnd(counts),
 });
+
+// ------------------------------------------------------------------ mine camera inspection (wheel + drag + lock)
+(function bindMineCameraControls() {
+  const canvas = mineRenderer.renderer.domElement;
+  canvas.style.touchAction = 'none';
+  canvas.addEventListener('wheel', (ev) => {
+    if (!mine) return;
+    ev.preventDefault();
+    mine.panCamera(-ev.deltaY * 0.012);
+  }, { passive: false });
+
+  let dragging = false;
+  let lastY = 0;
+  canvas.addEventListener('pointerdown', (ev) => {
+    if (!mine) return;
+    dragging = true;
+    lastY = ev.clientY;
+    canvas.setPointerCapture(ev.pointerId);
+  });
+  canvas.addEventListener('pointermove', (ev) => {
+    if (!dragging || !mine) return;
+    const dy = ev.clientY - lastY;
+    if (Math.abs(dy) < 2) return;
+    lastY = ev.clientY;
+    const [, half] = mine.viewHalf();
+    const blocksPerPx = (half * 2) / Math.max(100, canvas.clientHeight);
+    mine.panCamera(dy * blocksPerPx);
+  });
+  const endDrag = () => { dragging = false; };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  $('cam-reset-btn').addEventListener('click', () => {
+    mine?.resetCameraFollow();
+  });
+})();
 
 // ------------------------------------------------------------------ flow
 /** `?depth=N` overrides level depth (testing). */
 function levelDef(i: number) {
   const d = Number(new URLSearchParams(location.search).get('depth'));
-  return d > 0 ? { ...LEVELS[i], depth: d, caves: Math.max(1, Math.round(d / 10)) } : LEVELS[i];
+  return d > 0 ? { ...LEVELS[i], depth: d, caves: Math.max(1, Math.round(d / 10)), hardBands: Math.max(1, Math.round(d / 25)) } : LEVELS[i];
 }
 
 function startRun() {
@@ -54,12 +113,18 @@ function startLevel(i: number) {
   const startLv = run.mods.resonanceStartLv;
   resonance = { earth: startLv, thunder: startLv, poison: startLv, fire: startLv, ice: startLv };
   cumGauge = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
+  stamina = maxStamina();
+  focusBonus = 0;
+  activeMoveFocusMul = 1;
+  renderStaminaTicks();
+
   mine = new Mine(levelDef(i), run.mods, resonance, {
     onEnd: (win, reason) => onLevelEnd(win, reason),
     onResource: (ore) => { run.resources[ore] = (run.resources[ore] ?? 0) + 1; },
   });
   board.reset();
   board.enabled = true;
+  board.setStaminaReady(true);
   $('level-name').textContent = LEVELS[i].name;
   $('boss-bar').hidden = LEVELS[i].goal !== 'boss';
   $('lava-heat').style.opacity = '0';
@@ -88,7 +153,7 @@ function acquire(id: WeaponId, power: number, note = '', forceSpawn = false) {
     );
   } else {
     toast(
-      `${def.name} 強化 +${Math.round((res.weapon.dupMul - 1) * 100)}% 並回滿血！`,
+      `${def.name} 強化 +${Math.round((res.weapon.dupMul - 1) * 100)}% 並回復 ${Math.round(BAL.dupHealPct * 100)}%HP！`,
       meta.css,
       spriteUrl('weapon', id),
     );
@@ -101,26 +166,28 @@ function onMoveEnd(counts: number[]) {
   const t3 = run.mods.t3Threshold;
   const cumReq = run.mods.cumThreshold;
   const totalAll = counts.reduce((s, x) => s + x, 0);
+  const fMul = activeMoveFocusMul;
+  const focusNote = fMul >= 1.03 ? `專注 +${Math.round((fMul - 1) * 100)}%` : '';
+  activeMoveFocusMul = 1;
 
   ELEMENTS.forEach((el, i) => {
     const n = counts[i];
     if (n <= 0) return;
     const map = ELEMENT_WEAPONS[el];
 
-    // 1. Single-move weapon thresholds (3 / 4~5 / 6~8 / 9+)
+    // 1. Single-move weapon thresholds (3 / 4~5 / 6~8 / 9+), multiplied by Focus Bonus!
     if (n >= t3) {
       if (map.leg) {
-        acquire(map.leg, 1 + BAL.powerPerExtra * (n - t3));
+        acquire(map.leg, (1 + BAL.powerPerExtra * (n - t3)) * fMul, focusNote);
       } else {
-        // Ice 9+ -> supercharged Boomerang
-        acquire(map.t2, 1.35 + BAL.powerPerExtra * (n - t3), '超強化');
+        acquire(map.t2, (1.35 + BAL.powerPerExtra * (n - t3)) * fMul, focusNote || '超強化');
       }
     } else if (n >= t2) {
-      acquire(map.t2, 1 + BAL.powerPerExtra * (n - t2));
+      acquire(map.t2, (1 + BAL.powerPerExtra * (n - t2)) * fMul, focusNote);
     } else if (n >= BAL.t1Threshold) {
-      acquire(map.t1, 1 + BAL.powerPerExtra * (n - BAL.t1Threshold));
+      acquire(map.t1, (1 + BAL.powerPerExtra * (n - BAL.t1Threshold)) * fMul, focusNote);
     } else if (n >= BAL.t0Threshold) {
-      acquire(map.low, 1);
+      acquire(map.low, 1 * fMul, focusNote);
     }
 
     // 2. Merged Cumulative + Resonance gauge (every tile counts!)
@@ -131,7 +198,7 @@ function onMoveEnd(counts: number[]) {
       resonance[el] = Math.min(BAL.resonanceMaxLv, resonance[el] + 1);
       acquire(
         map.cum,
-        1 + resonance[el] * 0.08,
+        (1 + resonance[el] * 0.08) * fMul,
         resonance[el] > prevLv ? `共鳴 Lv${resonance[el]}` : '累計達成',
       );
       if (prevLv < BAL.resonanceMaxLv && resonance[el] === BAL.resonanceMaxLv) {
@@ -142,7 +209,7 @@ function onMoveEnd(counts: number[]) {
 
   // 3. Holy Sword: total tiles cleared across all colours (incl. hearts) >= 20 in one move
   if (totalAll >= BAL.holyTotalThreshold) {
-    acquire('excalibur', 1 + BAL.powerPerExtra * (totalAll - BAL.holyTotalThreshold), `總消 ${totalAll}`);
+    acquire('excalibur', (1 + BAL.powerPerExtra * (totalAll - BAL.holyTotalThreshold)) * fMul, `總消 ${totalAll}`);
   }
 
   // 4. Hearts: heal all active weapons (+ 3s shield at 7+)
@@ -172,7 +239,6 @@ function onLevelEnd(win: boolean, reason: string) {
 
 // ------------------------------------------------------------------ dialogs
 function guardDialog(d: HTMLDialogElement) {
-  // these dialogs must be answered with a button; Esc should not dismiss them
   d.addEventListener('cancel', (e) => e.preventDefault());
 }
 
@@ -266,6 +332,25 @@ if (!('closedBy' in HTMLDialogElement.prototype)) {
 }
 
 // ------------------------------------------------------------------ HUD
+function renderStaminaTicks() {
+  const max = maxStamina();
+  const prog = $<HTMLProgressElement>('stamina-prog');
+  prog.max = max;
+  $('stamina-ticks').replaceChildren(...Array.from({ length: max }, () => document.createElement('i')));
+}
+
+function updateStamina(dt: number) {
+  const max = maxStamina();
+  if (stamina < max) {
+    stamina = Math.min(max, stamina + dt / staminaRegenSec());
+    if (stamina < max) focusBonus = 0;
+  } else {
+    focusBonus = Math.min(BAL.focusMax, focusBonus + BAL.focusRatePerSec * dt);
+  }
+  if (noStaminaWarnT > 0) noStaminaWarnT = Math.max(0, noStaminaWarnT - dt);
+  board.setStaminaReady(UNLIMITED_STAMINA || stamina >= 1 - 1e-6);
+}
+
 function renderReso() {
   const req = run.mods.cumThreshold;
   $('reso').replaceChildren(
@@ -336,7 +421,23 @@ let hudT = 0;
 function updateHud(dt: number) {
   hudT -= dt;
   if (hudT > 0 || !mine) return;
-  hudT = 0.1;
+  hudT = 0.08;
+
+  // Stamina & Focus HUD
+  const maxS = maxStamina();
+  const wholeS = Math.floor(stamina + 1e-6);
+  const prog = $<HTMLProgressElement>('stamina-prog');
+  prog.value = stamina;
+  prog.classList.toggle('full', wholeS >= maxS);
+  const lbl = $('stamina-lbl');
+  lbl.textContent = `⚡ 行動力 ${wholeS}/${maxS}`;
+  lbl.classList.toggle('empty', wholeS < 1);
+  $('stamina-row').classList.toggle('warn', noStaminaWarnT > 0);
+  const focusEl = $('focus-badge');
+  const focusPct = Math.round(focusBonus * 100);
+  focusEl.hidden = focusPct < 1;
+  if (focusPct >= 1) focusEl.textContent = `✨ 專注 +${focusPct}%`;
+
   const t = Math.max(0, mine.timeLeft);
   const timer = $('timer');
   timer.textContent = `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
@@ -368,7 +469,18 @@ function updateHud(dt: number) {
   if (mine.boss) $('boss-fill').style.width = `${Math.max(0, mine.boss.hp / mine.boss.maxHp) * 100}%`;
   $('res').innerHTML = Object.entries(run.resources).map(([k, v]) => `<span>${ORE_ICON[k] ?? ''}${v}</span>`).join('');
 
-  // weapon cards
+  // Camera reset button
+  const camBtn = $('cam-reset-btn');
+  const camMode = mine.cameraMode;
+  camBtn.hidden = camMode === 'auto';
+  if (camMode === 'locked') {
+    const lw = mine.weapons.find((w) => w.uid === mine!.lockedWeaponUid);
+    camBtn.textContent = lw ? `🎯 鎖定：${lw.def.name}（點此回最深）` : '🎯 回到自動跟隨';
+  } else if (camMode === 'manual') {
+    camBtn.textContent = '🎯 回到自動跟隨';
+  }
+
+  // Weapon cards (clickable lock-on buttons)
   const list = $('weapon-cards');
   const alive = new Set<number>();
   for (const w of mine.weapons) {
@@ -378,28 +490,42 @@ function updateHud(dt: number) {
     if (!li) {
       li = document.createElement('li');
       li.className = 'card';
-      li.style.color = meta.css;
-      li.innerHTML = `<img src="${spriteUrl('weapon', w.def.id)}" alt="${w.def.name}"><span class="dup"></span><span class="hp"><i></i></span><span class="ult"><i></i></span>`;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'card-btn';
+      btn.style.color = meta.css;
+      btn.setAttribute('aria-label', `鎖定鏡頭跟隨 ${w.def.name}`);
+      btn.setAttribute('aria-pressed', 'false');
+      btn.innerHTML = `<span class="lock-ico" aria-hidden="true"></span><img src="${spriteUrl('weapon', w.def.id)}" alt=""><span class="dup"></span><span class="hp"><i></i></span><span class="ult"><i></i></span>`;
+      btn.addEventListener('click', () => {
+        mine?.toggleLockWeapon(w.uid);
+        hudT = 0; // immediate UI refresh
+      });
+      li.appendChild(btn);
       cardEls.set(w.uid, li);
       list.appendChild(li);
     }
-    const dupEl = li.querySelector('.dup') as HTMLElement;
+    const btn = li.firstElementChild as HTMLButtonElement;
+    const isLocked = mine.cameraMode === 'locked' && mine.lockedWeaponUid === w.uid;
+    btn.setAttribute('aria-pressed', isLocked ? 'true' : 'false');
+    (btn.querySelector('.lock-ico') as HTMLElement).textContent = isLocked ? '🎯' : '';
+    const dupEl = btn.querySelector('.dup') as HTMLElement;
     dupEl.textContent = w.dupStacks > 0 ? `+${w.dupStacks}` : '';
-    const [hp, ult] = li.querySelectorAll('i');
+    const [hp, ult] = btn.querySelectorAll('i');
     const f = Math.max(0, w.hp / w.maxHp);
     (hp as HTMLElement).style.width = `${f * 100}%`;
     (hp as HTMLElement).style.background = w.def.lifespanDecay
       ? (f > 0.35 ? '#ffe066' : '#ff7040')
       : (f > 0.5 ? '#5aff6a' : f > 0.25 ? '#ffd040' : '#ff4040');
-    const ultWrap = li.querySelector('.ult') as HTMLElement;
+    const ultWrap = btn.querySelector('.ult') as HTMLElement;
     ultWrap.hidden = !w.def.ult;
     if (w.def.ult) (ult as HTMLElement).style.width = `${w.ultReady * 100}%`;
-    li.classList.toggle('ready', !!w.def.ult && w.ultReady >= 1);
+    btn.classList.toggle('ready', !!w.def.ult && w.ultReady >= 1);
   }
   for (const [id, li] of cardEls) if (!alive.has(id)) { li.remove(); cardEls.delete(id); }
 }
 
-// board HUD reserves space at the top for the resonance row + combo line
+// board HUD reserves space at the top for resonance + stamina + combo line
 function layoutBoardPadding() {
   const hud = document.querySelector('.board-hud') as HTMLElement;
   board.setPadding(hud.offsetHeight + 4, 44);
@@ -411,7 +537,11 @@ let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (state === 'play' || state === 'ending') {
+  if (state === 'play') {
+    updateStamina(dt);
+    board.update(dt);
+    mine?.update(dt);
+  } else if (state === 'ending') {
     board.update(dt);
     mine?.update(dt);
   } else mine?.updateView(dt);
@@ -423,6 +553,7 @@ function frame(now: number) {
 
 // ------------------------------------------------------------------ boot
 initWiki(dlgWiki);
+renderStaminaTicks();
 renderReso();
 layoutBoardPadding();
 // show an idle preview mine behind the title screen
@@ -436,6 +567,11 @@ Object.assign(window, {
   fw: {
     spawn: (id: WeaponId, power = 1, force = false) => acquire(id, power, 'debug', force),
     all25: () => WEAPON_LIST.forEach((w, idx) => setTimeout(() => acquire(w.id, 1, 'debug', true), idx * 120)),
+    fillStamina: () => { stamina = maxStamina(); },
+    setStamina: (v: number) => { stamina = Math.max(0, Math.min(maxStamina(), v)); },
+    setFocus: (v: number) => { focusBonus = Math.max(0, Math.min(BAL.focusMax, v)); },
+    get stamina() { return stamina; },
+    get focus() { return focusBonus; },
     setLava: (gapBlocks: number) => {
       if (!mine) return;
       mine.time = Math.max(mine.time, BAL.lavaGrace + 1);

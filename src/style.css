@@ -28,14 +28,14 @@ html, body {
   display: grid;
   width: 100dvw;
   height: 100dvh;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 42fr 58fr;
   grid-template-areas: "board mine";
 }
 
 @media (orientation: portrait) {
   #game {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr 1fr;
+    grid-template-rows: 58fr 42fr;
     grid-template-areas: "mine" "board";
   }
 }
@@ -104,6 +104,64 @@ html, body {
 }
 .wiki-btn:hover, .wiki-btn:focus-visible { filter: brightness(1.2); outline: 2px solid var(--accent); outline-offset: 2px; }
 
+/* Clash Royale Elixir-style Stamina & Focus bar */
+.stamina-row {
+  display: flex; align-items: center; gap: 8px; margin-top: 6px;
+  background: var(--panel); border: 2px solid var(--border); border-radius: 5px;
+  padding: 3px 8px;
+  font-size: clamp(11px, 1.55cqw + 3px, 14px);
+}
+.stamina-row.warn {
+  border-color: var(--danger);
+}
+.stamina-lbl {
+  font-weight: 800; color: #b88cff; white-space: nowrap; min-inline-size: 6.4em;
+}
+.stamina-lbl.empty { color: var(--muted); }
+.stamina-track-wrap {
+  position: relative; flex: 1; height: 12px; min-width: 60px;
+}
+.stamina-prog {
+  --progress-bar-radius: 4px;
+  --progress-bar-track: #120b18;
+  --progress-bar-fill: linear-gradient(90deg, #9848f0, #d878ff);
+  appearance: none;
+  border: 0 solid;
+  overflow: clip;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--progress-bar-radius);
+  background: var(--progress-bar-track);
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 0.65);
+}
+.stamina-prog.full {
+  --progress-bar-fill: linear-gradient(90deg, #b858ff, #ffcf5a);
+}
+.stamina-prog::-webkit-progress-bar {
+  background: transparent;
+}
+.stamina-prog::-webkit-progress-value {
+  background: var(--progress-bar-fill);
+  border-radius: var(--progress-bar-radius);
+}
+.stamina-prog::-moz-progress-bar {
+  background: var(--progress-bar-fill);
+  border-radius: var(--progress-bar-radius);
+}
+.stamina-ticks {
+  position: absolute; inset: 0; display: flex; pointer-events: none;
+  border: 1px solid rgba(255,255,255,0.18); border-radius: 4px;
+}
+.stamina-ticks i {
+  flex: 1; border-right: 1.5px solid rgba(10, 6, 16, 0.85);
+}
+.stamina-ticks i:last-child { border-right: 0; }
+.focus-badge {
+  font-weight: 800; color: var(--accent); white-space: nowrap;
+  padding: 0 5px; border-radius: 3px; background: rgba(90, 56, 14, 0.72); border: 1px solid rgba(255, 207, 90, 0.55);
+}
+
 .combo {
   display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; min-height: 24px; margin-top: 5px;
   font-weight: 800; font-size: clamp(11px, 1.8cqw + 4px, 16px);
@@ -150,26 +208,47 @@ html, body {
 .shield { color: #ffd0e8; font-weight: 800; }
 .res-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; font-size: clamp(11px, 1.6cqw + 4px, 14px); font-weight: 700; }
 
+.cam-reset-btn {
+  position: absolute; right: 10px; bottom: 72px; z-index: 3;
+  min-block-size: 34px; padding: 5px 12px; border-radius: 999px;
+  border: 2px solid var(--accent); background: rgba(24, 16, 28, 0.9); color: var(--accent);
+  font: 700 13px var(--font); cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.65);
+}
+.cam-reset-btn:hover, .cam-reset-btn:focus-visible { filter: brightness(1.18); outline: 2px solid #fff; outline-offset: 2px; }
+
 .cards {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; margin: 0; padding: 6px 8px;
   display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; list-style: none; pointer-events: none;
   background: linear-gradient(transparent, rgba(0,0,0,.65));
 }
 .card {
-  position: relative;
-  width: clamp(36px, 8cqw, 56px); background: var(--panel); border: 2px solid var(--border); border-radius: 4px; padding: 2px;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  pointer-events: auto;
 }
-.card img { width: 100%; aspect-ratio: 1; image-rendering: pixelated; }
-.card .dup {
+.card-btn {
+  position: relative;
+  width: clamp(38px, 7.2cqw, 56px); background: var(--panel); border: 2px solid var(--border); border-radius: 4px; padding: 2px;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  color: inherit; cursor: pointer; font: inherit;
+}
+.card-btn:hover, .card-btn:focus-visible { filter: brightness(1.15); outline: 2px solid var(--accent); outline-offset: 1px; }
+.card-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: rgba(68, 44, 24, 0.92);
+}
+.card-btn img { width: 100%; aspect-ratio: 1; image-rendering: pixelated; }
+.card-btn .lock-ico {
+  position: absolute; top: 0; left: 1px; font-size: 10px; line-height: 1;
+}
+.card-btn .dup {
   position: absolute; top: 1px; right: 2px; font-size: 10px; font-weight: 800;
   color: #ffe680; text-shadow: 0 1px 2px #000;
 }
-.card .hp, .card .ult { width: 100%; height: 4px; background: #000; border-radius: 2px; overflow: hidden; }
-.card .hp i, .card .ult i { display: block; height: 100%; }
-.card .hp i { background: #5aff6a; }
-.card .ult i { background: currentColor; }
-.card.ready { border-color: currentColor; }
+.card-btn .hp, .card-btn .ult { width: 100%; height: 4px; background: #000; border-radius: 2px; overflow: hidden; }
+.card-btn .hp i, .card-btn .ult i { display: block; height: 100%; }
+.card-btn .hp i { background: #5aff6a; }
+.card-btn .ult i { background: currentColor; }
+.card-btn.ready { border-color: currentColor; }
 
 /* ---------------- dialogs ---------------- */
 dialog {
