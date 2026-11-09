@@ -28,6 +28,12 @@ const board = new Match3($('board-pane'), {
 });
 
 // ------------------------------------------------------------------ flow
+/** `?depth=N` overrides level depth (testing). */
+function levelDef(i: number) {
+  const d = Number(new URLSearchParams(location.search).get('depth'));
+  return d > 0 ? { ...LEVELS[i], depth: d, caves: Math.max(1, Math.round(d / 10)) } : LEVELS[i];
+}
+
 function startRun() {
   run.level = 0;
   run.mods = defaultMods();
@@ -42,7 +48,7 @@ function startLevel(i: number) {
   mine?.dispose();
   const start = run.mods.resonanceStart;
   resonance = { earth: start, thunder: start, poison: start, fire: start, ice: start };
-  mine = new Mine(LEVELS[i], run.mods, resonance, {
+  mine = new Mine(levelDef(i), run.mods, resonance, {
     onEnd: (win, reason) => onLevelEnd(win, reason),
     onResource: (ore) => { run.resources[ore] = (run.resources[ore] ?? 0) + 1; },
   });
@@ -337,5 +343,6 @@ Object.assign(window, {
     spawn: (id: WeaponId, power = 1) => spawn(id, power, 'debug'),
     get mine() { return mine; },
     win: () => mine && onLevelEnd(true, '（debug）'),
+    level: (i: number) => startLevel(i),
   },
 });

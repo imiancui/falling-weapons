@@ -29,17 +29,18 @@ export class MineRenderer {
     this.composer = new EffectComposer(this.renderer);
     this.renderPass = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
     this.composer.addPass(this.renderPass);
-    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), isLowQuality ? 0.55 : 0.8, 0.5, 0.82));
-    if (!isLowQuality) {
+    // threshold > 1 so only emissive / HDR effects (lava, lightning, ults) bloom, not lit blocks
+    if (!FLAGS.has('nobloom')) this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), isLowQuality ? 0.5 : 0.7, 0.45, 1.05));
+    if (!isLowQuality && !FLAGS.has('notilt')) {
       this.hTilt = new ShaderPass(HorizontalTiltShiftShader);
       this.vTilt = new ShaderPass(VerticalTiltShiftShader);
       this.composer.addPass(this.hTilt);
       this.composer.addPass(this.vTilt);
     }
     const vig = new ShaderPass(VignetteShader);
-    vig.uniforms.offset.value = 0.9;
-    vig.uniforms.darkness.value = 0.85; // must stay < 1, otherwise colours go negative (grey/NaN haze)
-    this.composer.addPass(vig);
+    vig.uniforms.offset.value = 1.1;
+    vig.uniforms.darkness.value = 1.0; // shader mixes towards (1 - darkness): 1 = black; <1 lifts blacks to grey, >1 goes negative
+    if (!FLAGS.has('novig')) this.composer.addPass(vig);
     this.composer.addPass(new OutputPass());
     new ResizeObserver(() => this.resize()).observe(container);
     this.resize();
@@ -53,8 +54,8 @@ export class MineRenderer {
     this.renderer.domElement.style.height = this.h + 'px';
     this.composer.setSize(this.w, this.h);
     if (this.hTilt && this.vTilt) {
-      this.hTilt.uniforms.h.value = 3.5 / this.w;
-      this.vTilt.uniforms.v.value = 3.5 / this.h;
+      this.hTilt.uniforms.h.value = 2.5 / this.w;
+      this.vTilt.uniforms.v.value = 2.5 / this.h;
       this.hTilt.uniforms.r.value = 0.45;
       this.vTilt.uniforms.r.value = 0.45;
     }
@@ -74,4 +75,5 @@ export class MineRenderer {
   }
 }
 
-const NO_POST = new URLSearchParams(location.search).has('nopost');
+const FLAGS = new URLSearchParams(location.search);
+const NO_POST = FLAGS.has('nopost');

@@ -339,7 +339,7 @@ export class Mine {
     this.updateActiveRows();
     const p = this.to3(x, y);
     this.fx.ring(p.x, p.y, 1.5, ELEMENT_INFO[w.def.element].color, 0.6);
-    this.fx.text(p.x, p.y + 1, w.def.name, ELEMENT_INFO[w.def.element].css, 1.4, 0.5);
+    this.fx.text(p.x, p.y - 1, w.def.name, ELEMENT_INFO[w.def.element].css, 1.4, 0.5);
     this.sparks.burst(p.x, p.y, 0.8, 30, ELEMENT_INFO[w.def.element].color, 4, 0.6, 0);
     // cap: drop the weakest if too many
     if (this.weapons.length > 12) {
@@ -937,7 +937,7 @@ export class Mine {
   get progress(): number {
     return Math.min(1, Math.max(0, (this.deepestY / this.B - BAL.airRows) / this.level.depth));
   }
-  get depthRows(): number { return Math.max(0, Math.floor(this.deepestY / this.B - BAL.airRows)); }
+  get depthRows(): number { return Math.min(this.level.depth, Math.max(0, Math.floor(this.deepestY / this.B - BAL.airRows))); }
   get lavaGap(): number { return Math.max(0, (this.deepestY - this.lavaY) / this.B); }
 
   dispose() {

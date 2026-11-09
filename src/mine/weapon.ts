@@ -263,7 +263,7 @@ function shockwave(m: Mine, w: Weapon, row: number, dmg: number) {
     }
   }
   const p = m.to3(...m.center(row, 4));
-  m.fx.rect(p.x, p.y, m.cols - 2, 0.6, 0xe0b070, 0.3, 1.8);
+  m.fx.rect(p.x, p.y, m.cols - 2, 0.4, 0xe0b070, 0.25, 0.9);
   m.fx.shake = Math.max(m.fx.shake, 0.15);
 }
 
@@ -304,8 +304,8 @@ function columnStrike(m: Mine, w: Weapon, col: number, fromRow: number, rows: nu
   }
   const top = m.to3(...m.center(fromRow - 6, col));
   const bot = m.to3(...m.center(fromRow + rows - 1, col));
-  m.fx.bolt(top, bot, 0xfff27a, 0.2, 0.3);
-  m.fx.rect(bot.x, (top.y + bot.y) / 2, 0.8, top.y - bot.y, 0xfff0a0, 0.2, 1.2);
+  m.fx.bolt(top, bot, 0xfff27a, 0.13, 0.3);
+  m.fx.rect(bot.x, (top.y + bot.y) / 2, 0.6, top.y - bot.y, 0xfff0a0, 0.2, 0.8);
   return dealt;
 }
 
