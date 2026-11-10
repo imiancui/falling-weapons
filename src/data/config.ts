@@ -166,13 +166,13 @@ export const BAL = {
   bagStartUnlocked: 25,
   storageSlots: 6,
   shopSlots: 5,
-  startGold: 38, // 極限硬核開局金幣（僅夠買 1~2 件基礎道具，需靠挖礦脈與殺怪賺錢）
-  passiveGoldPerSec: 0.35, // 每秒微幅鍛造津貼（防完全卡死）
-  shopRefreshCost: 8, // 基礎刷新商店費用（同關每次刷新 +2G）
-  shopRefreshCostStep: 2,
-  expandSlotBaseCost: 45, // 擴充第 1 格背包費用 45G（完全無免費擴格券！）
-  expandSlotCostStep: 18, // 每擴充 1 格費用大幅遞增 +18G（45 -> 63 -> 81 -> 99 -> 117...）
-  sellRefundRatio: 0.65, // 出售道具退還 65% 價值
+  startGold: 24, // 地獄硬核開局金幣（僅夠買 1 件低階武器，需靠挖礦脈與殺怪賺錢）
+  passiveGoldPerSec: 0.15, // 每秒微幅鍛造津貼（防完全卡死）
+  shopRefreshCost: 12, // 基礎刷新商店費用（同關每次刷新 +4G）
+  shopRefreshCostStep: 4,
+  expandSlotBaseCost: 60, // 擴充第 1 格背包費用 60G（完全無免費擴格券！）
+  expandSlotCostStep: 25, // 每擴充 1 格費用大幅遞增 +25G（60 -> 85 -> 110 -> 135 -> 160...）
+  sellRefundRatio: 0.50, // 出售道具退還 50% 價值
   airDropPowerMul: 1.35, // 手動拖曳武器至右側礦坑緊急空投：該把傷害與 HP ×1.35！
   star2Mul: 1.65, // ★2 武器傷害與 HP 倍率
   star3Mul: 2.60, // ★3 武器傷害與 HP 倍率
@@ -195,8 +195,8 @@ export const BAL = {
   volleyHealPct: 0.22, // 接球回復武器 22% 最大 HP（聖劍為 18%）
   heavyVolleyDmgMul: 1.60, // 重磅破城型武器被英雄接住重投時，額外獲得 ×1.60 重磅動能傷害！
   missCeilingWearPct: 0.08, // 漏接撞擊戰線頂部岩壁扣除 8% 最大 HP 並清空連段
-  enemyHpHardcoreMul: 1.60, // 怪物與三大首領血量全面 +60%！
-  blockHpHardcoreMul: 1.30, // 礦層方塊硬度全面 +30%！
+  enemyHpHardcoreMul: 2.35, // 怪物與三大首領血量全面 +135%！
+  blockHpHardcoreMul: 1.85, // 礦層方塊與地板硬度全面 +85%！
 
   // ---- legacy / resonance thresholds ----
   staminaMax: 7,
@@ -206,8 +206,8 @@ export const BAL = {
 
   // ---- endless abyss mode ----
   endlessGateEvery: 35, // 每 35 格一道守層結界房（破除拿三選一強化；每 105 格為 Boss 結界房）
-  endlessEnemyScalePerGate: 1.35, // 每道結界怪物血量 ×1.35
-  endlessBlockScalePerGate: 1.12, // 每道結界方塊血量 ×1.12
+  endlessEnemyScalePerGate: 1.45, // 每道結界怪物血量 ×1.45
+  endlessBlockScalePerGate: 1.18, // 每道結界方塊血量 ×1.18
   endlessLavaBaseSpeed: 0.23,
   endlessLavaAccelPerGate: 0.015,
   endlessLavaMaxSpeed: 0.52,
@@ -308,25 +308,25 @@ export const ORE_ICON: Record<string, string> = {
   coal: '⚫', iron: '⚪', copper: '🟠', gold: '🟡', redstone: '🔴', lapis: '🔵', diamond: '💎', emerald: '🟢',
 };
 
-/** Gold awarded when a block is destroyed in the mine (v0.6 Hardcore: dirt drops 0G; stone/deepslate only drop via low probability in destroyBlock). */
+/** Gold awarded when a block is destroyed in the mine (v0.6 Hell Hardcore: dirt drops 0G; stone/deepslate only drop via low probability in destroyBlock). */
 export const BLOCK_GOLD: Record<BlockType, number> = {
   dirt: 0,
   stone: 0,
   deepslate: 0,
-  obsidian: 4,
+  obsidian: 2,
   bedrock: 0,
   seal: 0,
-  core: 35,
-  barrel: 3,
-  crystal: 12,
-  coal: 3,
-  copper: 4,
-  iron: 5,
-  gold: 9,
-  redstone: 8,
-  lapis: 8,
-  diamond: 14,
-  emerald: 16,
+  core: 22,
+  barrel: 2,
+  crystal: 7,
+  coal: 2,
+  copper: 2,
+  iron: 3,
+  gold: 5,
+  redstone: 5,
+  lapis: 5,
+  diamond: 9,
+  emerald: 10,
 };
 
 /** Element Resonance XP granted when an ore is mined. */

@@ -44,6 +44,7 @@ const initCheck = await page.evaluate(() => {
   const fw = window.fw;
   return {
     heroId: fw.mine.heroId,
+    gold: fw.forge.gold,
     expandTokens: fw.forge.expandTokens,
     expandCost: fw.forge.nextExpandCost(),
     refreshCost: fw.forge.shopRefreshCost(),
@@ -55,9 +56,10 @@ const initCheck = await page.evaluate(() => {
 console.log('Init check:', initCheck);
 
 if (initCheck.heroId !== 'kael') throw new Error(`Expected heroId kael, got ${initCheck.heroId}`);
+if (initCheck.gold < 24 || initCheck.gold > 26) throw new Error(`Expected ~24G startGold, got ${initCheck.gold}`);
 if (initCheck.expandTokens !== 0) throw new Error(`Expected 0 free expandTokens, got ${initCheck.expandTokens}`);
-if (initCheck.expandCost !== 45) throw new Error(`Expected 45G expandCost, got ${initCheck.expandCost}`);
-if (initCheck.refreshCost !== 8) throw new Error(`Expected 8G refreshCost, got ${initCheck.refreshCost}`);
+if (initCheck.expandCost !== 60) throw new Error(`Expected 60G expandCost, got ${initCheck.expandCost}`);
+if (initCheck.refreshCost !== 12) throw new Error(`Expected 12G refreshCost, got ${initCheck.refreshCost}`);
 if (!initCheck.inspectorText.includes('彈力') || !initCheck.inspectorText.includes('投速')) {
   throw new Error(`Inspector missing physics stats: ${initCheck.inspectorText}`);
 }

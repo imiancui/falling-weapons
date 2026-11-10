@@ -654,14 +654,14 @@ export class Mine {
       }
     }
 
-    // Hard rock strata bands
-    const bands = L.hardBands ?? 2;
+    // Hard rock strata bands (+1 extra band & denser obsidian for tougher floors)
+    const bands = (L.hardBands ?? 2) + 1;
     for (let bIdx = 1; bIdx <= bands; bIdx++) {
       const bandRow = A + Math.floor((L.depth * (bIdx - 0.45)) / (bands + 0.5));
-      if (bandRow < A + 7 || bandRow >= A + L.depth - 7) continue;
+      if (bandRow < A + 6 || bandRow >= A + L.depth - 6) continue;
       for (let r = bandRow; r <= bandRow + 1; r++) {
         for (let c = 1; c < this.cols - 1; c++) {
-          this.setCell(r, c, Math.random() < (0.35 + bIdx * 0.08) ? 'obsidian' : 'deepslate', L.hpMul);
+          this.setCell(r, c, Math.random() < (0.50 + bIdx * 0.10) ? 'obsidian' : 'deepslate', L.hpMul);
         }
       }
       const barrelCol = 2 + Math.floor(Math.random() * (this.cols - 4));
@@ -744,15 +744,17 @@ export class Mine {
         }
       }
 
-      // 1 hard band + 2 caves in each 35-row segment
-      const bandRow = segStart + 12;
-      if (bandRow < sealRow - 7) {
-        for (let r = bandRow; r <= bandRow + 1; r++) {
-          for (let c = 1; c < this.cols - 1; c++) {
-            this.setCell(r, c, Math.random() < 0.45 ? 'obsidian' : 'deepslate', blockMul);
+      // 2 hard bands + 2 caves in each 35-row segment
+      for (const bandOffset of [11, 23]) {
+        const bandRow = segStart + bandOffset;
+        if (bandRow < sealRow - 6) {
+          for (let r = bandRow; r <= bandRow + 1; r++) {
+            for (let c = 1; c < this.cols - 1; c++) {
+              this.setCell(r, c, Math.random() < 0.65 ? 'obsidian' : 'deepslate', blockMul);
+            }
           }
+          this.setCell(bandRow, 2 + Math.floor(Math.random() * (this.cols - 4)), 'barrel', blockMul);
         }
-        this.setCell(bandRow, 2 + Math.floor(Math.random() * (this.cols - 4)), 'barrel', blockMul);
       }
       for (const offset of [7, 20]) {
         const rc = segStart + offset;
@@ -871,7 +873,7 @@ export class Mine {
       }
     }
     const mid = this.to3(...this.center(gate.sealRow, 4));
-    const gateGold = Math.round((gate.isBossGate ? 90 : 35) * this.mods.goldGainMul);
+    const gateGold = Math.round((gate.isBossGate ? 55 : 20) * this.mods.goldGainMul);
     this.cb.onGold?.(gateGold, 'gate');
     this.fx.ring(mid.x, mid.y, 3.4, 0x78f0ff, 0.6);
     this.fx.text(mid.x, mid.y + 0.8, gate.isBossGate ? `🔓 首領結界破除！+${gateGold}G` : `🔓 守層結界破除！+${gateGold}G`, '#7ef8ff', 1.5, 0.54);
@@ -1147,10 +1149,10 @@ export class Mine {
     const tint = BLOCK_TINT[b.type] ?? 0x888888;
     this.debris.burst(p.x, p.y, 0.5, 8, tint, 3, 0.7);
     const info = BLOCKS[b.type];
-    // v0.6 Hardcore Economy: dirt drops 0G; stone (25% -> 1G) & deepslate (35% -> 1G); ores/crystals/core drop full BLOCK_GOLD
+    // v0.6 Hell Hardcore Economy: dirt drops 0G; stone (10% -> 1G) & deepslate (18% -> 1G); ores/crystals/core drop BLOCK_GOLD
     let rawG = BLOCK_GOLD[b.type] ?? 0;
-    if (b.type === 'stone' && Math.random() < 0.25) rawG = 1;
-    else if (b.type === 'deepslate' && Math.random() < 0.35) rawG = 1;
+    if (b.type === 'stone' && Math.random() < 0.10) rawG = 1;
+    else if (b.type === 'deepslate' && Math.random() < 0.18) rawG = 1;
     if (rawG > 0) {
       const gold = Math.max(1, Math.round(rawG * this.mods.goldGainMul));
       this.cb.onGold?.(gold, b.type);
@@ -1218,7 +1220,7 @@ export class Mine {
     this.scene.remove(e.group);
     this.enemies = this.enemies.filter((o) => o !== e);
     const p = this.to3(e.x, e.y);
-    const rawKillGold = e.isBoss ? 150 : e.isElite ? 45 : 15;
+    const rawKillGold = e.isBoss ? 90 : e.isElite ? 26 : 9;
     const killGold = Math.round(rawKillGold * this.mods.goldGainMul);
     this.cb.onGold?.(killGold, e.isBoss ? 'boss' : e.isElite ? 'elite' : 'enemy');
     if (e.isBoss || e.isElite) {

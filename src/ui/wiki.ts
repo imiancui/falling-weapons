@@ -319,10 +319,10 @@ function renderBlocksTab(): string {
   const rows = BLOCK_ORDER.map((t) => {
     const b = BLOCKS[t];
     const hpText = Number.isFinite(b.hp)
-      ? `${Math.round(b.hp * BAL.blockHpHardcoreMul)}（硬核 +30%｜闖關 ×1.0~×3.2）`
+      ? `${Math.round(b.hp * BAL.blockHpHardcoreMul)}（硬核 +85%｜闖關 ×1.0~×3.2）`
       : '無法直接挖掘';
     const goldReward = BLOCK_GOLD[t] ?? 0;
-    const probGold = t === 'stone' ? '💰 25% 掉 1G' : t === 'deepslate' ? '💰 35% 掉 1G' : '';
+    const probGold = t === 'stone' ? '💰 10% 掉 1G' : t === 'deepslate' ? '💰 18% 掉 1G' : '';
     const oreText = [
       goldReward > 0 ? `💰 +${goldReward}G` : probGold,
       b.ore ? `${ORE_ICON[b.ore]} 資源＋共鳴經驗` : '',
@@ -372,8 +372,8 @@ function renderEnemiesTab(): string {
     const hardcoreHp = Math.round(e.hp * BAL.enemyHpHardcoreMul);
     const atkText = k === 'spider' ? `射程 ${e.range} 格／CD ${e.cd}s（緩速網）`
       : k === 'mushroom' ? `偵測 ${e.range} 格／引信 1s 自爆 ${e.dmg} 傷`
-        : isBoss ? `接觸每 0.5s 造成 ${e.dmg} 傷＋專屬範圍彈幕／召喚／元素護盾（討伐賞金 💰150G）`
-          : `射程 ${e.range} 格／每次 ${e.dmg} 傷（討伐賞金 💰15G，金冠菁英 💰45G）`;
+        : isBoss ? `接觸每 0.5s 造成 ${e.dmg} 傷＋專屬範圍彈幕／召喚／元素護盾（討伐賞金 💰90G）`
+          : `射程 ${e.range} 格／每次 ${e.dmg} 傷（討伐賞金 💰9G，金冠菁英 💰26G）`;
     return `
       <tr>
         <th scope="row">
@@ -382,7 +382,7 @@ function renderEnemiesTab(): string {
             <b>${e.name}${isBoss ? ' (Boss)' : ''}</b>
           </div>
         </th>
-        <td>${hardcoreHp.toLocaleString()}${isBoss ? '（硬核 +60%｜無盡隨深度成長）' : `（硬核 +60%｜闖關 ×1.0~×18.0）`}</td>
+        <td>${hardcoreHp.toLocaleString()}${isBoss ? '（硬核 +135%｜無盡隨深度成長）' : `（硬核 +135%｜闖關 ×1.0~×18.0）`}</td>
         <td>${atkText}</td>
         <td>${e.desc}</td>
       </tr>`;
@@ -390,7 +390,7 @@ function renderEnemiesTab(): string {
 
   return `
     <h3>巡邏怪物・金冠守層菁英・三大元素首領</h3>
-    <p class="wiki-note">洞穴與結界大廳怪物會<b>主動橫向追擊武器</b>；頭戴皇冠的<b>👑 守層菁英</b>擁有 <b>2.5× 血量與 1.5× 傷害</b>，擊殺必掉<b>💰26G 與 🎒免費擴格券</b>！三大首領各自擁有專屬減傷護盾，善用對應<b>剋制元素或矮人炸彈</b>可瞬間破盾並造成高額破盾傷害！</p>
+    <p class="wiki-note">洞穴與結界大廳怪物會<b>主動橫向追擊武器</b>；頭戴皇冠的<b>👑 守層菁英</b>擁有 <b>2.5× 血量與 1.5× 傷害</b>，擊殺掉<b>💰26G（無免費擴格券！）</b>；三大首領各自擁有專屬減傷護盾，善用對應<b>剋制元素或矮人炸彈</b>可瞬間破盾並造成高額破盾傷害！</p>
     <div tabindex="0" role="region" aria-labelledby="cap-enemies" class="table-wrapper">
       <table class="wiki-table" style="--label-2:'基礎 HP'; --label-3:'攻擊與賞金'; --label-4:'行為與破盾弱點'">
         <caption id="cap-enemies">全怪物與三大首領能力與弱點一覽</caption>

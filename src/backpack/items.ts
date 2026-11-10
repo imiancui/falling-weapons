@@ -86,27 +86,27 @@ export function getAdjacencyOffsets(pattern: AdjacencyPattern): ShapeCell[] {
 
 function weaponShapeSpec(id: WeaponId, cat: WeaponCategory): { shape: ShapeCell[]; shapeName: string; cost: number; cd: number } {
   if (cat === 'low') {
-    return { shape: SHAPE_1X1, shapeName: '1×1 輕巧', cost: 18, cd: 3.5 };
+    return { shape: SHAPE_1X1, shapeName: '1×1 輕巧', cost: 24, cd: 3.5 };
   }
   if (cat === 't1') {
-    return { shape: SHAPE_1X2, shapeName: '1×2 長柄', cost: 35, cd: 4.6 };
+    return { shape: SHAPE_1X2, shapeName: '1×2 長柄', cost: 48, cd: 4.6 };
   }
   if (cat === 'cum') {
-    if (id === 'drill') return { shape: SHAPE_1X3, shapeName: '1×3 鑽頭', cost: 60, cd: 5.2 };
-    if (id === 'frostclaw') return { shape: SHAPE_L3, shapeName: 'L形 3格', cost: 60, cd: 5.0 };
-    return { shape: SHAPE_1X2, shapeName: '1×2 特武', cost: 58, cd: 4.8 };
+    if (id === 'drill') return { shape: SHAPE_1X3, shapeName: '1×3 鑽頭', cost: 82, cd: 5.2 };
+    if (id === 'frostclaw') return { shape: SHAPE_L3, shapeName: 'L形 3格', cost: 82, cd: 5.0 };
+    return { shape: SHAPE_1X2, shapeName: '1×2 特武', cost: 78, cd: 4.8 };
   }
   if (cat === 't2') {
-    if (id === 'halberd' || id === 'scythe') return { shape: SHAPE_1X3, shapeName: '1×3 長兵', cost: 70, cd: 5.8 };
-    if (id === 'boomerang') return { shape: SHAPE_L3, shapeName: 'L形 3格', cost: 70, cd: 5.4 };
-    return { shape: SHAPE_2X2, shapeName: '2×2 重武', cost: 72, cd: 6.0 };
+    if (id === 'halberd' || id === 'scythe') return { shape: SHAPE_1X3, shapeName: '1×3 長兵', cost: 95, cd: 5.8 };
+    if (id === 'boomerang') return { shape: SHAPE_L3, shapeName: 'L形 3格', cost: 95, cd: 5.4 };
+    return { shape: SHAPE_2X2, shapeName: '2×2 重武', cost: 98, cd: 6.0 };
   }
   if (cat === 'leg') {
-    if (id === 'hydra') return { shape: SHAPE_L3, shapeName: 'L形 3格', cost: 115, cd: 6.6 };
-    return { shape: SHAPE_2X2, shapeName: '2×2 傳說', cost: 118, cd: 6.8 };
+    if (id === 'hydra') return { shape: SHAPE_L3, shapeName: 'L形 3格', cost: 155, cd: 6.6 };
+    return { shape: SHAPE_2X2, shapeName: '2×2 傳說', cost: 160, cd: 6.8 };
   }
   // holy (excalibur)
-  return { shape: SHAPE_2X2, shapeName: '2×2 神聖', cost: 138, cd: 7.2 };
+  return { shape: SHAPE_2X2, shapeName: '2×2 神聖', cost: 188, cd: 7.2 };
 }
 
 function weaponRecipeHint(id: WeaponId, cat: WeaponCategory, elName: string): string {
@@ -153,7 +153,7 @@ for (const w of WEAPON_LIST) {
   };
 }
 
-// Register Relics, Elemental Cores, Holy Seal, and Consumables (+25% hardcore prices)
+// Register Relics, Elemental Cores, Holy Seal, and Consumables (Hell Hardcore prices)
 const EXTRA_ITEMS: BagItemDef[] = [
   {
     id: 'whetstone',
@@ -163,7 +163,7 @@ const EXTRA_ITEMS: BagItemDef[] = [
     cssColor: '#ffd480',
     baseShape: SHAPE_1X1,
     shapeName: '1×1 遺物',
-    cost: 28,
+    cost: 38,
     forgeCd: 0,
     adjPattern: 'ortho4',
     desc: '使上下左右相鄰的所有武器，投射出的【傷害 +28%】（兩顆同星磨刀石可二合一升星，效果提升至 +46%／+68%！）',
@@ -177,7 +177,7 @@ const EXTRA_ITEMS: BagItemDef[] = [
     cssColor: '#ffae42',
     baseShape: SHAPE_1X1,
     shapeName: '1×1 遺物',
-    cost: 32,
+    cost: 44,
     forgeCd: 0,
     adjPattern: 'ring8',
     desc: '使周圍 8 格相鄰的所有武器，【自動鍛造投射冷卻 -22%】（升星可達 -34%／-45%，產出速度暴增！）',
@@ -191,7 +191,7 @@ const EXTRA_ITEMS: BagItemDef[] = [
     cssColor: '#7ec8ff',
     baseShape: SHAPE_1X1,
     shapeName: '1×1 遺物',
-    cost: 25,
+    cost: 35,
     forgeCd: 0,
     adjPattern: 'ortho4',
     desc: '使上下左右相鄰的所有武器，投射出的【最大 HP 耐久 +35%】（對聖劍壽命同樣有效！）',
@@ -205,7 +205,7 @@ const EXTRA_ITEMS: BagItemDef[] = [
     cssColor: '#d488ff',
     baseShape: SHAPE_1X1,
     shapeName: '1×1 遺物',
-    cost: 32,
+    cost: 44,
     forgeCd: 0,
     adjPattern: 'ortho4',
     desc: '使上下左右相鄰的武器【大招集氣／冷卻速度 +35%】，且每次投射額外增加該元素 +3 點共鳴經驗！',
@@ -219,7 +219,7 @@ const EXTRA_ITEMS: BagItemDef[] = [
     cssColor: '#7ef8ff',
     baseShape: SHAPE_1X1,
     shapeName: '1×1 稀有遺物',
-    cost: 52,
+    cost: 72,
     forgeCd: 0,
     adjPattern: 'horiz2',
     desc: '使【左右兩側】相鄰的武器每次鍛造完成時，有 45% 機率（★2 70%／★3 100%）直接【雙連投射 2 把】入坑！',
@@ -239,7 +239,7 @@ const EXTRA_ITEMS: BagItemDef[] = [
       element: el,
       baseShape: SHAPE_1X1,
       shapeName: '1×1 核心',
-      cost: 35,
+      cost: 48,
       forgeCd: 0,
       adjPattern: 'ortho4',
       desc: `【擺放時】上下左右相鄰武器傷害 +18% 且每次投射額外 +4 點${info.name}共鳴；【拖到武器上】直接跨階合成進化！`,
@@ -255,7 +255,7 @@ const EXTRA_ITEMS: BagItemDef[] = [
     element: 'holy',
     baseShape: SHAPE_1X1,
     shapeName: '1×1 聖印',
-    cost: 72,
+    cost: 98,
     forgeCd: 0,
     adjPattern: 'ortho4',
     desc: '【擺放時】上下左右相鄰武器傷害 +32%；【拖到任意初階／高階／傳說武器上】直接鍛造出神聖傳說【✨ 聖劍】！',
@@ -269,7 +269,7 @@ const EXTRA_ITEMS: BagItemDef[] = [
     cssColor: '#ff8844',
     baseShape: SHAPE_1X1,
     shapeName: '1×1 消耗品',
-    cost: 20,
+    cost: 28,
     forgeCd: 0,
     adjPattern: 'none',
     desc: '拖到右邊礦坑任意直列（或點擊立即投擲），在最深處引爆 3.2 格巨型破岩炸彈，炸穿硬岩並直接擊碎岩石巨像護殼！',
@@ -283,7 +283,7 @@ const EXTRA_ITEMS: BagItemDef[] = [
     cssColor: '#ff88c8',
     baseShape: SHAPE_1X1,
     shapeName: '1×1 消耗品',
-    cost: 22,
+    cost: 30,
     forgeCd: 0,
     adjPattern: 'none',
     desc: '拖到右邊礦坑（或點擊立即飲用），場上所有存活武器立即【回復 45% 最大 HP】並獲得【3 秒無敵護盾】！',
