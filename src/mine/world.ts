@@ -2,14 +2,14 @@
 import * as THREE from 'three';
 import Matter from 'matter-js';
 import {
-  BAL, BLOCKS, BOSS_CYCLE, weaponElementMeta,
+  BAL, BLOCKS, BLOCK_GOLD, BOSS_CYCLE, weaponElementMeta,
   type BlockType, type BossKind, type Element, type EnemyKind, type LevelDef, type Mods, type WeaponElement,
 } from '../data/config';
 import { WEAPONS, type WeaponId } from '../data/weapons';
 import { Tex } from '../gfx/pixel';
 import { Particles } from '../gfx/particles';
 import { Fx, type LightReq } from './fx';
-import { Weapon, onHit } from './weapon';
+import { Weapon, onHit, type WeaponSpawnMeta } from './weapon';
 import { Balrog, Boss, Enemy, Golem, SpiderQueen, createBoss } from './enemy';
 
 export interface DmgSrc {
@@ -58,6 +58,8 @@ export interface MineCallbacks {
   onEnd: (win: boolean, reason: string) => void;
   onResource: (ore: string) => void;
   onGateCleared?: (gateId: number, isBossGate: boolean) => void;
+  onGold?: (amount: number, reason?: string) => void;
+  onExpandToken?: (count: number) => void;
 }
 
 const BLOCK_TINT: Partial<Record<BlockType, number>> = {
@@ -661,8 +663,11 @@ export class Mine {
       }
     }
     const mid = this.to3(...this.center(gate.sealRow, 4));
+    const gateGold = Math.round((gate.isBossGate ? 90 : 35) * this.mods.goldGainMul);
+    this.cb.onGold?.(gateGold, 'gate');
+    this.cb.onExpandToken?.(1);
     this.fx.ring(mid.x, mid.y, 3.4, 0x78f0ff, 0.6);
-    this.fx.text(mid.x, mid.y + 0.8, gate.isBossGate ? '🔓 首領結界破除！' : '🔓 守層結界破除！', '#7ef8ff', 1.5, 0.56);
+    this.fx.text(mid.x, mid.y + 0.8, gate.isBossGate ? `🔓 首領結界破除！+${gateGold}G 🎒+1格` : `🔓 守層結界破除！+${gateGold}G 🎒+1格`, '#7ef8ff', 1.5, 0.54);
     this.fx.shake = Math.max(this.fx.shake, 0.22);
     if (this.isEndless) {
       this.cb.onGateCleared?.(gateId, gate.isBossGate);
@@ -710,30 +715,32 @@ export class Mine {
     return this.resonance[def.element] >= BAL.resonanceMaxLv;
   }
 
-  acquireWeapon(id: WeaponId, power: number, forceSpawn = false): { weapon: Weapon; mode: 'spawned' | 'upgraded' } {
-    if (!forceSpawn && !this.canMultiCopy(id)) {
+  acquireWeapon(id: WeaponId, power: number, forceSpawn = false, meta?: WeaponSpawnMeta): { weapon: Weapon; mode: 'spawned' | 'upgraded' } {
+    const force = forceSpawn || Boolean(meta?.forceSpawn) || meta?.customCol !== undefined;
+    if (!force && !this.canMultiCopy(id)) {
       const existing = this.weapons.find((w) => !w.dead && w.def.id === id);
       if (existing) {
-        existing.upgradeFromDuplicate(power);
+        existing.upgradeFromDuplicate(power, meta?.hpBonusMul ?? 1, meta?.ultRateMul ?? 1, meta?.star ?? 1);
         return { weapon: existing, mode: 'upgraded' };
       }
     }
-    return { weapon: this.spawnWeapon(id, power), mode: 'spawned' };
+    return { weapon: this.spawnWeapon(id, power, meta), mode: 'spawned' };
   }
 
-  spawnWeapon(id: WeaponId, power: number): Weapon {
-    const [x, y] = this.findSpawnPoint();
-    const w = new Weapon(this, id, power, x, y);
+  spawnWeapon(id: WeaponId, power: number, meta?: WeaponSpawnMeta): Weapon {
+    const [x, y] = this.findSpawnPoint(meta?.customCol);
+    const w = new Weapon(this, id, power, x, y, meta);
     if (y - this.lavaY < this.B * 3) w.invulnUntil = Math.max(w.invulnUntil, this.time + 1.5);
     this.weapons.push(w);
     this.scene.add(w.group);
     Matter.Composite.add(this.engine.world, w.body);
     this.updateActiveRows();
     const p = this.to3(x, y);
-    const meta = weaponElementMeta(w.def.element);
-    this.fx.ring(p.x, p.y, 1.4, meta.color, 0.5);
-    this.fx.text(p.x, p.y - 0.9, w.def.name, meta.css, 1.3, 0.48);
-    this.sparks.burst(p.x, p.y, 0.8, 22, meta.color, 3.6, 0.55, 0);
+    const elMeta = weaponElementMeta(w.def.element);
+    this.fx.ring(p.x, p.y, 1.4, elMeta.color, 0.5);
+    const starBadge = w.star > 1 ? `${'★'.repeat(w.star)} ` : '';
+    this.fx.text(p.x, p.y - 0.9, starBadge + w.def.name, elMeta.css, 1.3, 0.48);
+    this.sparks.burst(p.x, p.y, 0.8, 22, elMeta.color, 3.6, 0.55, 0);
     if (this.weapons.length > BAL.maxWeapons) {
       const lowCandidates = this.weapons.filter((o) => o !== w && o.def.category === 'low');
       const pool = lowCandidates.length ? lowCandidates : this.weapons.filter((o) => o !== w);
@@ -743,12 +750,32 @@ export class Mine {
     return w;
   }
 
-  private findSpawnPoint(): [number, number] {
+  /** Drops a high-impact dwarven mining bomb into the mine (destroys hard rock, damages monsters, breaks Golem shell). */
+  dropTacticalBomb(col?: number) {
+    const targetCol = col !== undefined ? Math.max(1, Math.min(this.cols - 2, col)) : 4;
+    const [x, y] = this.findSpawnPoint(targetCol);
+    const explodeY = Math.max(y, this.deepestY - this.B * 0.4);
+    const p = this.to3((targetCol + 0.5) * this.B, explodeY);
+    const scale = this.isEndless ? Math.pow(BAL.endlessBlockScalePerGate, Math.max(0, this.endlessChunkIdx - 1)) : this.level.hpMul;
+    this.fx.explosion(p.x, p.y, 3.3, 0xff8830);
+    this.fx.text(p.x, p.y + 0.8, '🧨 矮人深層炸彈！', '#ffcc58', 1.45, 0.52);
+    this.fx.shake = Math.max(this.fx.shake, 0.28);
+    this.explode((targetCol + 0.5) * this.B, explodeY, 3.2 + this.mods.aoeBonus, 420 * scale, { kind: 'explosion' });
+  }
+
+  private findSpawnPoint(preferredCol?: number): [number, number] {
     const [, half] = this.viewHalf();
     const camRow = Math.floor(-this.camY);
     const lavaRow = Math.floor(this.lavaY / this.B);
     const deepRow = Math.floor(this.deepestY / this.B);
     const start = Math.max(0, camRow - Math.floor(half) + 2, lavaRow + 2);
+    if (preferredCol !== undefined) {
+      const c = Math.max(1, Math.min(this.cols - 2, preferredCol));
+      for (let r = Math.min(start, deepRow); r <= deepRow + 1; r++) {
+        if (!this.isSolid(r, c)) return this.center(r, c);
+      }
+      return [(c + 0.5) * this.B, Math.max(this.lavaY + this.B * 0.5, this.deepestY - this.B)];
+    }
     for (let r = Math.min(start, deepRow); r <= deepRow + 1; r++) {
       const empties: number[] = [];
       for (let c = 1; c < this.cols - 1; c++) {
@@ -908,6 +935,14 @@ export class Mine {
     const tint = BLOCK_TINT[b.type] ?? 0x888888;
     this.debris.burst(p.x, p.y, 0.5, 8, tint, 3, 0.7);
     const info = BLOCKS[b.type];
+    const baseG = BLOCK_GOLD[b.type] ?? 0;
+    if (baseG > 0 && (baseG >= 2 || Math.random() < 0.58)) {
+      const gold = Math.max(1, Math.round(baseG * this.mods.goldGainMul));
+      this.cb.onGold?.(gold, b.type);
+      if (baseG >= 5) {
+        this.fx.text(p.x, p.y + 0.35, `+${gold}G`, '#ffd858', 0.85, 0.34);
+      }
+    }
     if (info.ore) {
       this.sparks.burst(p.x, p.y, 0.7, 10, tint, 3, 0.7, -2);
       this.cb.onResource(info.ore);
@@ -967,6 +1002,16 @@ export class Mine {
     this.scene.remove(e.group);
     this.enemies = this.enemies.filter((o) => o !== e);
     const p = this.to3(e.x, e.y);
+    const rawKillGold = e.isBoss ? 150 : e.isElite ? 45 : 15;
+    const killGold = Math.round(rawKillGold * this.mods.goldGainMul);
+    this.cb.onGold?.(killGold, e.isBoss ? 'boss' : e.isElite ? 'elite' : 'enemy');
+    if (e.isBoss || e.isElite) {
+      const tokens = e.isBoss ? 2 : 1;
+      this.cb.onExpandToken?.(tokens);
+      this.fx.text(p.x, p.y + 0.65, `💰+${killGold}G 🎒+${tokens}格`, '#ffd858', 1.25, 0.45);
+    } else {
+      this.fx.text(p.x, p.y + 0.45, `+${killGold}G`, '#ffd858', 0.9, 0.36);
+    }
     this.debris.burst(p.x, p.y, 0.6, e.isBoss ? 70 : e.isElite ? 28 : 14, 0xa04040, e.isBoss ? 7 : 3.2, 0.8);
     if (e.plague && e.poisonUntil > this.time) {
       for (const o of this.enemiesInRadius(e.x, e.y, 2 * this.B)) this.poisonEnemy(o, e.poisonDps, 3, 1, true);

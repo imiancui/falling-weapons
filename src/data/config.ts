@@ -36,16 +36,33 @@ export function weaponElementMeta(el: WeaponElement): { name: string; color: num
 }
 
 export const BAL = {
-  // ---- burst stamina + big-clear refunds + 8s Overdrive ----
-  staminaMax: 7, // 每輪基礎 7 格行動力
-  refundTier1Count: 8, // 單步總消 8~13 顆 → 回氣 +1 格 + 狂暴蓄能 +1 層
-  refundTier2Count: 14, // 單步總消 14+ 顆 → 回氣 +2 格 + 狂暴蓄能 +2 層
-  maxRefundsPerCycle: 4, // 每輪最多回氣 4 格（單輪最多連打 11 步）
-  overdriveSec: 8.0, // 行動力歸 0（或手動釋放）進入 8 秒散熱狂暴觀賞期
+  // ---- backpack forge & shop economy (v0.5) ----
+  bagGridSize: 7, // 7x7 master grid (center 5x5 = 25 cells unlocked at start, outer 24 expandable)
+  bagStartUnlocked: 25,
+  storageSlots: 6,
+  shopSlots: 5,
+  startGold: 75, // 開局初始金幣（足夠買 2~3 把初始武器＋配件）
+  passiveGoldPerSec: 1.4, // 每秒基礎鍛造津貼（防卡手保底）
+  shopRefreshCost: 5, // 基礎刷新商店費用
+  expandSlotBaseCost: 22, // 擴充 1 格背包基礎金幣（每擴 1 格 +3G，或使用菁英掉落的擴格券免費開格！）
+  sellRefundRatio: 0.65, // 出售道具退還 65% 價值
+  airDropPowerMul: 1.35, // 手動拖曳武器至右側礦坑緊急空投：該把傷害與 HP ×1.35！
+  star2Mul: 1.65, // ★2 武器傷害與 HP 倍率
+  star3Mul: 2.60, // ★3 武器傷害與 HP 倍率
+  star2CdMul: 0.88, // ★2 鍛造冷卻 ×0.88
+  star3CdMul: 0.76, // ★3 鍛造冷卻 ×0.76
+  overdriveCooldownSec: 18.0, // 「🔥 全彈超載」技能冷卻
+  overdriveSec: 6.5, // 全彈超載持續秒數（立即齊射背包全武器＋全場狂暴加速）
   overdriveHitCdMul: 0.55, // 狂暴期間武器碰撞攻擊間隔 ×0.55
   overdriveUltRateMul: 1.8, // 狂暴期間大招冷卻與集氣速度 ×1.8
-  overdriveBaseDmgBonus: 0.25, // 狂暴基礎增傷 +25%
-  overdriveStackDmgBonus: 0.10, // 每層回氣蓄能額外增傷 +10%（滿 4 層共 +65%）
+  overdriveBaseDmgBonus: 0.35, // 狂暴基礎增傷 +35%
+  overdriveStackDmgBonus: 0.10,
+
+  // ---- legacy / resonance thresholds ----
+  staminaMax: 7,
+  refundTier1Count: 8,
+  refundTier2Count: 14,
+  maxRefundsPerCycle: 4,
 
   // ---- endless abyss mode ----
   endlessGateEvery: 35, // 每 35 格一道守層結界房（破除拿三選一強化；每 105 格為 Boss 結界房）
@@ -54,26 +71,26 @@ export const BAL = {
   endlessLavaBaseSpeed: 0.23,
   endlessLavaAccelPerGate: 0.015,
   endlessLavaMaxSpeed: 0.52,
-  endlessResoExtraBonus: 0.03, // 無盡模式共鳴滿 Lv5 後，每再滿 30 顆同色額外 +3% 該元素傷害
+  endlessResoExtraBonus: 0.03, // 共鳴滿 Lv5 後，每再升 1 級額外 +3% 該元素傷害
 
-  // ---- match-3 thresholds ----
+  // ---- resonance & weapon duplicate rules ----
   boardSize: 8,
-  t0Threshold: 3, // 低階：同色一步消 3
-  t1Threshold: 4, // 初階：同色一步消 4~5
-  t2Threshold: 6, // 高階：同色一步消 6~8
-  t3Threshold: 9, // 傳說：同色一步消 9+
-  holyTotalThreshold: 20, // 聖劍：一步內全色（含愛心）加總消 20+
-  cumThreshold: 30, // 累計武器 + 共鳴升 1 級：每累計 30 個同色方塊
+  t0Threshold: 3,
+  t1Threshold: 4,
+  t2Threshold: 6,
+  t3Threshold: 9,
+  holyTotalThreshold: 20,
+  cumThreshold: 30, // 共鳴經驗條每滿 30 點升 1 級共鳴並自動投射 1 把專屬武器
   resonanceMaxLv: 5, // 共鳴滿級 Lv5（解鎖同名武器多把並存）
-  powerPerExtra: 0.12, // +12% 傷害與 HP / 每超過門檻 1 顆
+  powerPerExtra: 0.12,
   dupBoost: 0.20, // 未滿 Lv5 重複觸發同名武器：傷害強化 +20%
   holyDupBoost: 0.25, // 聖劍重複觸發：傷害強化 +25%
   dupHealPct: 0.40, // 重複觸發同名武器時回復 40% 最大 HP
   maxDupStacks: 5,
-  heartHealPct: 0.08, // 每顆愛心回復最大 HP 8%
+  heartHealPct: 0.08,
   heartShieldCount: 7,
   heartShieldSec: 3,
-  heartWeight: 0.7, // 愛心生成權重（元素為 1.0）
+  heartWeight: 0.7,
   hintDelay: 5,
 
   // ---- mine / physics ----
@@ -151,6 +168,39 @@ export const ORE_ICON: Record<string, string> = {
   coal: '⚫', iron: '⚪', copper: '🟠', gold: '🟡', redstone: '🔴', lapis: '🔵', diamond: '💎', emerald: '🟢',
 };
 
+/** Gold awarded when a block is destroyed in the mine. */
+export const BLOCK_GOLD: Record<BlockType, number> = {
+  dirt: 1,
+  stone: 1,
+  deepslate: 2,
+  obsidian: 5,
+  bedrock: 0,
+  seal: 0,
+  core: 40,
+  barrel: 4,
+  crystal: 14,
+  coal: 4,
+  copper: 5,
+  iron: 6,
+  gold: 10,
+  redstone: 9,
+  lapis: 9,
+  diamond: 16,
+  emerald: 18,
+};
+
+/** Element Resonance XP granted when an ore is mined. */
+export const ORE_ELEMENT: Record<string, Element> = {
+  coal: 'fire',
+  copper: 'earth',
+  iron: 'earth',
+  gold: 'thunder',
+  redstone: 'thunder',
+  lapis: 'ice',
+  diamond: 'ice',
+  emerald: 'poison',
+};
+
 // ---------------- levels (10-stage exponential campaign + endless config) ----------------
 export type EnemyKind = 'zombie' | 'skeleton' | 'mushroom' | 'spider';
 export type BossKind = 'golem' | 'spider_queen' | 'balrog';
@@ -218,8 +268,14 @@ export interface Mods {
   resonanceStartLv: number;
   wearMul: number;
   staminaMaxBonus: number;
-  overdriveSecBonus: number; // negative shortens cooldown while keeping full refill
-  overdriveDmgBonus: number; // extra damage multiplier during Overdrive
+  overdriveSecBonus: number;
+  overdriveDmgBonus: number;
+  forgeCdMul: number; // multiplies backpack auto-forge cooldowns (<1 = faster)
+  relicEffectMul: number; // multiplies adjacency relic bonuses
+  goldGainMul: number; // multiplies gold earned from mining & monsters
+  shopDiscount: number; // reduces shop refresh cost
+  pendingGoldBonus: number; // instant gold granted when perk is picked
+  pendingExpandTokens: number; // instant free backpack cell expansions granted when perk is picked
 }
 export function defaultMods(): Mods {
   return {
@@ -242,36 +298,42 @@ export function defaultMods(): Mods {
     staminaMaxBonus: 0,
     overdriveSecBonus: 0,
     overdriveDmgBonus: 0,
+    forgeCdMul: 1,
+    relicEffectMul: 1,
+    goldGainMul: 1,
+    shopDiscount: 0,
+    pendingGoldBonus: 0,
+    pendingExpandTokens: 0,
   };
 }
 
 export interface PerkDef { id: string; name: string; desc: string; icon: string; apply: (m: Mods) => void; max?: number; campaignOnly?: boolean }
 export const PERKS: PerkDef[] = [
   {
-    id: 'stamina_spd', name: '行雲流水', desc: '散熱期縮短 1 秒，且狂暴期間武器傷害額外 +25%', icon: '🍃', max: 2,
-    apply: (m) => { m.overdriveSecBonus -= 1; m.overdriveDmgBonus += 0.25; },
+    id: 'forge_spd', name: '神速鍛造爐', desc: '背包內所有武器自動鍛造投射冷卻 -18%，且全彈超載增傷 +25%', icon: '🍃', max: 3,
+    apply: (m) => { m.forgeCdMul *= 0.82; m.overdriveDmgBonus += 0.25; },
   },
   {
-    id: 'stamina_max', name: '氣海擴充', desc: '每輪基礎行動力上限 +1 格', icon: '🔋', max: 2,
-    apply: (m) => { m.staminaMaxBonus += 1; },
+    id: 'bag_expand', name: '次元背包術', desc: '立即獲得 4 張免費背包擴格券，且背包內所有鄰接遺物加成效果 +25%', icon: '🎒', max: 3,
+    apply: (m) => { m.pendingExpandTokens += 4; m.relicEffectMul += 0.25; },
+  },
+  {
+    id: 'greed_pick', name: '黃金礦工', desc: '挖礦與討伐怪物金幣收益 +35%，並立即獲得 +65 金幣與 1 張擴格券', icon: '💰', max: 3,
+    apply: (m) => { m.goldGainMul += 0.35; m.pendingGoldBonus += 65; m.pendingExpandTokens += 1; },
   },
   { id: 'dmg', name: '鍛造大師', desc: '所有武器傷害 +22%', icon: '⚔️', apply: (m) => { m.dmgMul += 0.22; } },
   { id: 'hp', name: '強韌鋼材', desc: '武器最大 HP +25%', icon: '🛡️', apply: (m) => { m.hpMul += 0.25; } },
-  { id: 'heal', name: '生命之心', desc: '愛心回血量 +50%', icon: '💗', apply: (m) => { m.healMul += 0.5; } },
+  { id: 'heal', name: '生命之心', desc: '水晶與女神藥水回血量 +50%', icon: '💗', apply: (m) => { m.healMul += 0.5; } },
   { id: 'lava', name: '冷卻岩漿', desc: '岩漿下降速度 -18%', icon: '🧊', max: 3, apply: (m) => { m.lavaSpeedMul *= 0.82; } },
   { id: 'time', name: '沙漏', desc: '關卡時限 +40 秒', icon: '⏳', campaignOnly: true, apply: (m) => { m.timeBonus += 40; } },
-  {
-    id: 't2', name: '精煉配方', desc: '高階與傳說武器門檻各 -1（最低 5／7）', icon: '📜', max: 2,
-    apply: (m) => { m.t2Threshold = Math.max(5, m.t2Threshold - 1); m.t3Threshold = Math.max(7, m.t3Threshold - 1); },
-  },
-  { id: 'invuln', name: '降臨祝福', desc: '武器生成時附帶 2 秒無敵', icon: '✨', max: 1, apply: (m) => { m.spawnInvuln += 2; } },
+  { id: 'invuln', name: '降臨祝福', desc: '武器投射入坑時附帶 2 秒無敵', icon: '✨', max: 1, apply: (m) => { m.spawnInvuln += 2; } },
   { id: 'chain', name: '導電體質', desc: '雷屬性連鎖目標 +2', icon: '⚡', apply: (m) => { m.thunderChainBonus += 2; } },
   { id: 'spread', name: '野火燎原', desc: '火焰蔓延機率 ×2', icon: '🔥', max: 2, apply: (m) => { m.fireSpreadMul *= 2; } },
   { id: 'ult', name: '大招專精', desc: '大招冷卻／集氣需求 -20%', icon: '🌀', max: 3, apply: (m) => { m.ultMul *= 0.8; } },
   { id: 'hunter', name: '怪物剋星', desc: '對怪物與 Boss 傷害 +35%', icon: '🎯', apply: (m) => { m.enemyDmgMul += 0.35; } },
   { id: 'aoe', name: '爆破專家', desc: '擴散／爆炸類範圍 +1 格', icon: '💥', max: 2, apply: (m) => { m.aoeBonus += 1; } },
   {
-    id: 'reso', name: '元素共鳴', desc: '累計條需求 -5（最低 20），且初始全元素共鳴 +1 級', icon: '🔮', max: 2,
+    id: 'reso', name: '元素共鳴', desc: '全元素共鳴立即 +1 級，且共鳴經驗需求 -5（最低 20）', icon: '🔮', max: 2,
     apply: (m) => { m.cumThreshold = Math.max(20, m.cumThreshold - 5); m.resonanceStartLv = Math.min(BAL.resonanceMaxLv, m.resonanceStartLv + 1); },
   },
   { id: 'wear', name: '金剛刃', desc: '挖礦耐久消耗 -35%', icon: '💠', max: 2, apply: (m) => { m.wearMul *= 0.65; } },

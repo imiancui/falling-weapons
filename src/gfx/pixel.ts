@@ -1112,6 +1112,77 @@ function crownCanvas(): HTMLCanvasElement {
   ], { o: '#2a1804', Y: '#ffd848', R: '#ff3848' });
 }
 
+const R_WHETSTONE = [
+  '................', '................', '.......oooo.....', '.....ooLLLLoo...',
+  '....oLLSSSSLLo..', '...oLSSSSSSGSLo.', '..oLSSSSGGGSSo..', '..oSSSSGGGSSo...',
+  '...oSSGGGSSo....', '....oSGGSSo.....', '.....oooo.......', '................',
+  '................', '................', '................', '................',
+];
+const R_GEAR = [
+  '......oooo......', '.....oYYYYo.....', '..oo.oYLLYo.oo..', '.oYYooYYYYooYYo.',
+  '.oYYYYGGGGYYYYo.', '..ooYYGooGYYoo..', 'oYYYYGo..oGYYYYo', 'oYLLYGo..oGYLLYo',
+  'oYYYYGo..oGYYYYo', '..ooYYGooGYYoo..', '.oYYYYGGGGYYYYo.', '.oYYooYYYYooYYo.',
+  '..oo.oYYYYo.oo..', '.....oYYYYo.....', '......oooo......', '................',
+];
+const R_PLATE = [
+  '....oooooooo....', '..ooLLLLLLLLoo..', '.oLLSSSSSSSSLLo.', '.oLSSYYYYYYSSLo.',
+  '.oLSYYSSSSYYSLo.', '.oLSYSSSSSSYSLo.', '.oLSYSSYYSSYSLo.', '.oLSYSSYYSSYSLo.',
+  '..oLSYSSSSYSLo..', '..oLSSYYYYSSLo..', '...oLSSSSSSLo...', '....oLSSSSLo....',
+  '.....oLSSLo.....', '......oooo......', '................', '................',
+];
+const R_AMP_CRYSTAL = [
+  '.......oo.......', '......oLLo......', '.....oLWWLo.....', '....oLWMMWLo....',
+  '...oLWMCCMWLo...', '..oLWMCCCCMWLo..', '..oLMCCWWCCMLo..', '..oLMCCWWCCMLo..',
+  '..oLWMCCCCMWLo..', '...oLWMCCMWLo...', '....oLWMMWLo....', '.....oLWWLo.....',
+  '....ooYYYYoo....', '...oYYGGGGYYo...', '....oooooooo....', '................',
+];
+const R_MIRROR = [
+  '....oooooooo....', '...oYYYYYYYYo...', '..oYYCCCCCCYYo..', '.oYYCCWWWWCCYYo.',
+  '.oYCCWWLLWWCCYo.', '.oYCCWLLLLWCCYo.', '.oYCCLLWWLLCCYo.', '.oYCCLLLLLLCCYo.',
+  '.oYCCLLLLLLCCYo.', '.oYYCCLLLLCCYYo.', '..oYYCCCCCCYYo..', '...oYYYYYYYYo...',
+  '.....oYYYYo.....', '....oYYYYYYo....', '....oooooooo....', '................',
+];
+const R_CORE_ORB = [
+  '.....oooooo.....', '...ooLLLLLLoo...', '..oLLWWWWWWLLo..', '.oLLWWYYYYWWLLo.',
+  '.oLWYYYYYYYYWLo.', 'oLWYYYWWWWYYYWLo', 'oLWYYWWWWWWYYWLo', 'oLWYYWWWWWWYYWLo',
+  'oLWYYYWWWWYYYWLo', '.oLWYYYYYYYYWLo.', '.oLLWWYYYYWWLLo.', '..oLLWWWWWWLLo..',
+  '...ooLLLLLLoo...', '.....oooooo.....', '................', '................',
+];
+const R_HOLY_SEAL = [
+  '......oooo......', '....ooYYYYoo....', '...oYYWWWWYYo...', '..oYWWLLLLWWYo..',
+  '.oYWLLYYYYLLWYo.', '.oYWLYWWWWYLWYo.', 'oYWLWWWRRWWWLWYo', 'oYWLWWRRRRWWLWYo',
+  '.oYWLYWWWWYLWYo.', '.oYWLLYYYYLLWYo.', '..oYWWLLLLWWYo..', '...oYYWWWWYYo...',
+  '....ooYYYYoo....', '......oooo......', '................', '................',
+];
+const R_MINE_BOMB = [
+  '.........ooYY...', '........o..YY...', '......oooo......', '....ooDDDDoo....',
+  '...oDDLLLLDDo...', '..oDDLDDDDDDDo..', '..oDLDDRRRRDo...', '..oDDDDDDDDDDo..',
+  '..oDDDDDDDDDDo..', '...oDDDDDDDDo...', '....ooDDDDoo....', '......oooo......',
+  '................', '................', '................', '................',
+];
+const R_HEAL_POTION = [
+  '......oooo......', '.....oWWWWo.....', '......oSSo......', '.....oLLLLo.....',
+  '....oLWWWWLo....', '...oLWPPPPWLo...', '..oLWPPWWPPWLo..', '..oLWPWWWWPWLo..',
+  '..oLWPPWWPPWLo..', '..oLWPPPPPPWLo..', '...oLPPPPPPWo...', '....oLLLLLLo....',
+  '.....oooooo.....', '................', '................', '................',
+];
+
+const RELIC_ART: Record<string, { rows: string[]; pal: Record<string, string> }> = {
+  whetstone: { rows: R_WHETSTONE, pal: { o: '#1e1612', L: '#d8cfc8', S: '#9c928c', G: '#685e58' } },
+  gear: { rows: R_GEAR, pal: { o: '#281808', Y: '#e8a838', L: '#ffe698', G: '#8c5c20' } },
+  plate: { rows: R_PLATE, pal: { o: '#141e2c', L: '#d8f0ff', S: '#74a8d8', Y: '#ffd858' } },
+  amp_crystal: { rows: R_AMP_CRYSTAL, pal: { o: '#201030', L: '#f8d8ff', W: '#ffffff', M: '#c868ff', C: '#8838e0', Y: '#d8a848', G: '#6c4c20' } },
+  mirror: { rows: R_MIRROR, pal: { o: '#241808', Y: '#f0b840', C: '#58c8f8', L: '#b8f4ff', W: '#ffffff' } },
+  core_earth: { rows: R_CORE_ORB, pal: { o: '#241608', L: '#f0c888', W: '#fff2d8', Y: '#b87c3c' } },
+  core_thunder: { rows: R_CORE_ORB, pal: { o: '#282004', L: '#ffe868', W: '#ffffff', Y: '#e8a818' } },
+  core_poison: { rows: R_CORE_ORB, pal: { o: '#0c2408', L: '#98ff68', W: '#ebffd8', Y: '#38b828' } },
+  core_fire: { rows: R_CORE_ORB, pal: { o: '#2c0804', L: '#ff8838', W: '#fff0b8', Y: '#d82818' } },
+  core_ice: { rows: R_CORE_ORB, pal: { o: '#082030', L: '#88e4ff', W: '#ffffff', Y: '#2898d8' } },
+  holy_seal: { rows: R_HOLY_SEAL, pal: { o: '#2c1c04', Y: '#ffd848', W: '#ffffff', L: '#fff4b0', R: '#ff3858' } },
+  mine_bomb: { rows: R_MINE_BOMB, pal: { o: '#141016', D: '#383440', L: '#807a8c', R: '#e83828', Y: '#ffd848' } },
+  heal_potion: { rows: R_HEAL_POTION, pal: { o: '#281020', W: '#ffffff', S: '#c89868', L: '#ffd0e8', P: '#ff4890' } },
+};
+
 // ---------------------------------------------------------------- cache
 const cache = new Map<string, THREE.Texture>();
 function cached(key: string, make: () => HTMLCanvasElement): THREE.Texture {
@@ -1154,12 +1225,16 @@ export const Tex = {
 
 /** Data-URL versions for DOM UI (weapon cards, tile icons in HUD, Wiki tables). */
 const urlCache = new Map<string, string>();
-export function spriteUrl(kind: 'weapon' | 'tile' | 'enemy' | 'block' | 'rainbow' | 'special', id: string | number): string {
+export function spriteUrl(kind: 'weapon' | 'relic' | 'tile' | 'enemy' | 'block' | 'rainbow' | 'special', id: string | number): string {
   const key = kind + ':' + id;
   let u = urlCache.get(key);
   if (!u) {
     let c: HTMLCanvasElement;
     if (kind === 'weapon') c = sprite(WEAPON_ART[id as WeaponId].rows, WEAPON_ART[id as WeaponId].pal);
+    else if (kind === 'relic') {
+      const r = RELIC_ART[id as string] ?? RELIC_ART.whetstone;
+      c = sprite(r.rows, r.pal);
+    }
     else if (kind === 'enemy') c = sprite(ENEMY_ART[id as string].rows, ENEMY_ART[id as string].pal);
     else if (kind === 'block') { seed = 1000 + String(id).length * 97 + String(id).charCodeAt(0); c = blockCanvas(id as BlockType); }
     else if (kind === 'rainbow') c = rainbowCanvas();

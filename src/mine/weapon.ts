@@ -9,11 +9,22 @@ import { Golem, type Enemy } from './enemy';
 const barGeo = new THREE.PlaneGeometry(1, 0.09);
 let nextWeaponId = 1;
 
+export interface WeaponSpawnMeta {
+  hpBonusMul?: number;
+  ultRateMul?: number;
+  star?: number;
+  customCol?: number;
+  forceSpawn?: boolean;
+}
+
 export class Weapon {
   readonly uid = nextWeaponId++;
   readonly def: WeaponDef;
   hp: number;
   maxHp: number;
+  hpBonusMul = 1;
+  ultRateMul = 1;
+  star = 1;
   dupStacks = 0; // upgrades from duplicate triggers while element resonance < Lv5
   body: Matter.Body;
   group = new THREE.Group();
@@ -37,9 +48,12 @@ export class Weapon {
   dead = false;
   readonly scale: number;
 
-  constructor(public m: Mine, id: WeaponId, public power: number, x: number, y: number) {
+  constructor(public m: Mine, id: WeaponId, public power: number, x: number, y: number, meta?: WeaponSpawnMeta) {
     this.def = WEAPONS[id];
-    this.maxHp = this.hp = this.def.baseHp * (1 + (power - 1) * 0.6) * m.mods.hpMul;
+    this.hpBonusMul = meta?.hpBonusMul ?? 1;
+    this.ultRateMul = meta?.ultRateMul ?? 1;
+    this.star = meta?.star ?? 1;
+    this.maxHp = this.hp = this.def.baseHp * (1 + (power - 1) * 0.6) * m.mods.hpMul * this.hpBonusMul;
     this.scale = this.def.scale * Math.min(1.28, 1 + (power - 1) * 0.2);
     const s = this.scale;
 
@@ -75,7 +89,7 @@ export class Weapon {
     Matter.Body.setVelocity(this.body, { x: (Math.random() - 0.5) * 2, y: 1 });
 
     const tex = Tex.weapon(id);
-    const meta = weaponElementMeta(this.def.element);
+    const elMeta = weaponElementMeta(this.def.element);
     this.mat = new THREE.MeshStandardMaterial({
       map: tex, transparent: true, alphaTest: 0.5,
       emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: id === 'excalibur' ? 0.25 : 0.18,
@@ -88,7 +102,7 @@ export class Weapon {
     bg.position.set(0, 0.95 * s, 0.01);
     this.hpFill = new THREE.Mesh(barGeo, new THREE.MeshBasicMaterial({ color: id === 'excalibur' ? 0xffe066 : 0x5aff6a }));
     this.hpFill.position.set(0, 0.95 * s + (this.def.ult ? 0.03 : 0), 0.02);
-    this.ultFill = new THREE.Mesh(barGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(meta.color).multiplyScalar(1.15) }));
+    this.ultFill = new THREE.Mesh(barGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(elMeta.color).multiplyScalar(1.15) }));
     this.ultFill.scale.y = 0.5;
     this.ultFill.position.set(0, 0.95 * s - 0.045, 0.02);
     this.ultFill.visible = !!this.def.ult;
@@ -139,11 +153,14 @@ export class Weapon {
   }
 
   /** Called when player triggers this weapon again before element resonance reaches Lv5. */
-  upgradeFromDuplicate(newPower: number): boolean {
+  upgradeFromDuplicate(newPower: number, hpBonusMul = 1, ultRateMul = 1, star = 1): boolean {
+    if (hpBonusMul > this.hpBonusMul) this.hpBonusMul = hpBonusMul;
+    if (ultRateMul > this.ultRateMul) this.ultRateMul = ultRateMul;
+    if (star > this.star) this.star = star;
     if (newPower > this.power) {
       const oldMax = this.maxHp;
       this.power = newPower;
-      this.maxHp = this.def.baseHp * (1 + (this.power - 1) * 0.6) * this.m.mods.hpMul;
+      this.maxHp = this.def.baseHp * (1 + (this.power - 1) * 0.6) * this.m.mods.hpMul * this.hpBonusMul;
       if (this.maxHp < oldMax) this.maxHp = oldMax;
     }
     const upgraded = this.dupStacks < BAL.maxDupStacks;
@@ -278,7 +295,7 @@ function poisonTarget(m: Mine, w: Weapon, t: Target, stacks: number, plague: boo
 
 export function onHit(m: Mine, w: Weapon, t: Target) {
   const d = w.dmg;
-  const chg = m.overdriveActive ? BAL.overdriveUltRateMul : 1;
+  const chg = (m.overdriveActive ? BAL.overdriveUltRateMul : 1) * w.ultRateMul;
   const [tr, tc] = targetCell(m, t);
   const p = m.to3(...m.center(tr, tc));
   switch (w.def.id) {
@@ -541,7 +558,7 @@ function columnStrike(m: Mine, w: Weapon, col: number, fromRow: number, rows: nu
 
 export function tick(m: Mine, w: Weapon, dt: number) {
   const d = w.dmg;
-  const ultRate = m.overdriveActive ? BAL.overdriveUltRateMul : 1;
+  const ultRate = (m.overdriveActive ? BAL.overdriveUltRateMul : 1) * w.ultRateMul;
   const pasRate = m.overdriveActive ? 1.6 : 1;
   const [wr, wc] = m.cellOf(w.x, w.y);
   if (w.def.id === 'halberd') {

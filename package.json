@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "share": "powershell -ExecutionPolicy Bypass -File scripts/tailscale-up.ps1",
+    "share:bg": "powershell -ExecutionPolicy Bypass -File scripts/tailscale-up.ps1 -Background",
     "unshare": "powershell -ExecutionPolicy Bypass -File scripts/tailscale-down.ps1"
   },
   "dependencies": {

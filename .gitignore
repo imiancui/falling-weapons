@@ -3,3 +3,4 @@ dist/
 _ref_falling-pickaxe/
 *.log
 scratch/
+.tailscale-certs/

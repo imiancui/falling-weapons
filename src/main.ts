@@ -1,17 +1,18 @@
 import './style.css';
 import {
-  BAL, ELEMENTS, ELEMENT_INFO, ENDLESS_LEVEL, HEART, HOLY_INFO, LEVELS, ORE_ICON, PERKS,
+  BAL, ELEMENTS, ELEMENT_INFO, ENDLESS_LEVEL, LEVELS, ORE_ELEMENT, ORE_ICON, PERKS,
   defaultMods, weaponElementMeta, type Element, type Mods,
 } from './data/config';
 import { ELEMENT_WEAPONS, WEAPONS, WEAPON_LIST, type WeaponId } from './data/weapons';
 import { spriteUrl } from './gfx/pixel';
-import { Match3 } from './match3/board';
+import { BackpackForge } from './backpack/forge';
+import { itemSpriteUrl } from './backpack/items';
 import { Mine } from './mine/world';
 import { MineRenderer } from './mine/renderer';
+import type { WeaponSpawnMeta } from './mine/weapon';
 import { initWiki } from './ui/wiki';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const UNLIMITED_STAMINA = new URLSearchParams(location.search).has('nostamina');
 
 // ------------------------------------------------------------------ persistent records
 interface BestRecords {
@@ -66,52 +67,55 @@ const run = {
   perks: [] as string[],
   resources: {} as Record<string, number>,
   weaponsMade: 0,
+  totalGold: BAL.startGold as number,
 };
 let resonance: Record<Element, number> = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
 let cumGauge: Record<Element, number> = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
 
-// v0.4: 7-AP Burst + Big-Clear Refunds + 8s Overdrive
-let stamina: number = BAL.staminaMax;
-let refundedThisCycle = 0;
+// v0.5: All-Weapon Overdrive Barrage state
 let overdriveTimer = 0;
 let overdriveDuration: number = BAL.overdriveSec;
-let noStaminaWarnT = 0;
+let overdriveCooldown = 0;
 let pendingEndlessPerk: { isBossGate: boolean } | null = null;
 let perkSource: 'campaign' | 'endless' = 'campaign';
 let mine: Mine | null = null;
 
-function maxStamina(): number {
-  return BAL.staminaMax + run.mods.staminaMaxBonus;
-}
 function currentOverdriveDuration(): number {
   return Math.max(4, BAL.overdriveSec + run.mods.overdriveSecBonus);
 }
 function currentOverdriveDmgMul(): number {
-  return 1 + BAL.overdriveBaseDmgBonus + refundedThisCycle * BAL.overdriveStackDmgBonus + run.mods.overdriveDmgBonus;
+  return 1 + BAL.overdriveBaseDmgBonus + run.mods.overdriveDmgBonus;
 }
 
 const mineRenderer = new MineRenderer($('mine-pane'));
-const board = new Match3($('board-pane'), {
-  canSwap: () => overdriveTimer <= 0 && (UNLIMITED_STAMINA || stamina >= 1),
-  onNoStamina: () => {
-    noStaminaWarnT = 0.45;
-    if (overdriveTimer > 0) {
-      toast(`🔥 狂暴散熱中（${overdriveTimer.toFixed(1)} 秒後一次補滿，請欣賞右側戰鬥！）`, '#ffb258');
-    } else {
-      toast('行動力不足！', '#c898ff');
+const forge = new BackpackForge($('board-pane'), run.mods, {
+  onForgeWeapon: (id, power, meta, note) => {
+    acquire(id, power, note ?? '', Boolean(meta.forceSpawn), meta);
+  },
+  onUseConsumable: (id, col) => {
+    if (!mine) return;
+    if (id === 'mine_bomb') {
+      mine.dropTacticalBomb(col);
+      toast(`🧨 矮人深層炸彈引爆${col ? `（第 ${col} 列）` : ''}！`, '#ffaa44', itemSpriteUrl('mine_bomb'));
+    } else if (id === 'heal_potion') {
+      mine.healAll(0.45 * run.mods.healMul);
+      mine.shield(3);
+      toast('🧪 女神甘露：全場武器回復 45% HP ＋ 3 秒無敵！', '#ff88c8', itemSpriteUrl('heal_potion'));
     }
   },
-  onValidSwap: () => {
-    if (!UNLIMITED_STAMINA) stamina = Math.max(0, stamina - 1);
-    hudT = 0;
+  onAddResonanceXp: (el, amount) => addResonanceXp(el, amount),
+  onToast: (text, color, icon) => toast(text, color, icon),
+  getMineColumnFromClientX: (clientX, clientY) => {
+    const pane = $('mine-pane');
+    const r = pane.getBoundingClientRect();
+    if (clientX < r.left || clientX > r.right || clientY < r.top || clientY > r.bottom) return null;
+    const ratio = (clientX - r.left) / Math.max(1, r.width);
+    return Math.max(1, Math.min(7, Math.floor(ratio * 7) + 1));
   },
-  onStep: (counts) => renderCombo(counts),
-  onMoveEnd: (counts) => onMoveEnd(counts),
 });
 
 $('od-btn').addEventListener('click', () => {
-  if (state !== 'play' || overdriveTimer > 0 || board.busy) return;
-  if (stamina >= maxStamina() && (!mine || mine.weapons.length === 0)) return;
+  if (state !== 'play' || overdriveTimer > 0 || overdriveCooldown > 0) return;
   triggerOverdrive();
 });
 
@@ -167,20 +171,50 @@ function startRun(mode: GameMode = gameMode) {
   run.perks = [];
   run.resources = {};
   run.weaponsMade = 0;
+  run.totalGold = BAL.startGold;
   pendingEndlessPerk = null;
+
+  const startLv = run.mods.resonanceStartLv;
+  resonance = { earth: startLv, thunder: startLv, poison: startLv, fire: startLv, ice: startLv };
+  cumGauge = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
+  forge.resetForNewRun(run.mods);
+
   if (mode === 'endless') startEndless();
-  else startLevel(0);
+  else startLevel(0, true);
 }
 
-function resetBurstCycle() {
-  stamina = maxStamina();
-  refundedThisCycle = 0;
+function resetOverdriveState() {
   overdriveTimer = 0;
+  overdriveCooldown = 0;
   overdriveDuration = currentOverdriveDuration();
-  renderStaminaTicks();
+  forge.overdriveActive = false;
 }
 
-function startLevel(i: number) {
+function wireMineCallbacks(isEndless: boolean) {
+  return {
+    onEnd: (win: boolean, reason: string) => onLevelEnd(win, reason),
+    onResource: (ore: string) => {
+      run.resources[ore] = (run.resources[ore] ?? 0) + 1;
+      const el = ORE_ELEMENT[ore];
+      if (el) addResonanceXp(el, 4);
+    },
+    onGold: (amount: number) => {
+      forge.addGold(amount);
+      run.totalGold += amount;
+    },
+    onExpandToken: (count: number) => {
+      forge.addExpandTokens(count);
+      toast(`🎒 獲得免費背包擴格券 +${count}！`, '#6aff98');
+    },
+    onGateCleared: isEndless
+      ? (_gateId: number, isBossGate: boolean) => {
+          if (gameMode === 'endless') pendingEndlessPerk = { isBossGate };
+        }
+      : undefined,
+  };
+}
+
+function startLevel(i: number, isNewRun = false) {
   gameMode = 'campaign';
   run.level = i;
   if (i + 1 > records.bestStage) {
@@ -188,30 +222,23 @@ function startLevel(i: number) {
     saveRecords();
   }
   mine?.dispose();
-  const startLv = run.mods.resonanceStartLv;
-  resonance = { earth: startLv, thunder: startLv, poison: startLv, fire: startLv, ice: startLv };
-  cumGauge = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
+  if (isNewRun) {
+    const startLv = run.mods.resonanceStartLv;
+    resonance = { earth: startLv, thunder: startLv, poison: startLv, fire: startLv, ice: startLv };
+    cumGauge = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
+  }
   pendingEndlessPerk = null;
-  resetBurstCycle();
+  resetOverdriveState();
 
-  mine = new Mine(levelDef(i), run.mods, resonance, {
-    onEnd: (win, reason) => onLevelEnd(win, reason),
-    onResource: (ore) => { run.resources[ore] = (run.resources[ore] ?? 0) + 1; },
-  });
-  board.reset();
-  board.enabled = true;
-  board.setStaminaReady(true);
+  mine = new Mine(levelDef(i), run.mods, resonance, wireMineCallbacks(false));
+  forge.onStageStart(i);
+  forge.enabled = true;
   $('level-name').textContent = LEVELS[i].name;
   $('boss-bar').hidden = !mine.boss;
   $('gate-row').hidden = true;
   $('lava-heat').style.opacity = '0';
-  $('combo').replaceChildren();
   state = 'play';
   hudT = 0;
-  if (BAL.starterWeapon) {
-    const el = ELEMENTS[Math.floor(Math.random() * ELEMENTS.length)];
-    acquire(ELEMENT_WEAPONS[el].t1, 1, '開局贈送');
-  }
   renderReso();
 }
 
@@ -223,23 +250,15 @@ function startEndless() {
   resonance = { earth: startLv, thunder: startLv, poison: startLv, fire: startLv, ice: startLv };
   cumGauge = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
   pendingEndlessPerk = null;
-  resetBurstCycle();
+  resetOverdriveState();
 
-  mine = new Mine(ENDLESS_LEVEL, run.mods, resonance, {
-    onEnd: (win, reason) => onLevelEnd(win, reason),
-    onResource: (ore) => { run.resources[ore] = (run.resources[ore] ?? 0) + 1; },
-    onGateCleared: (_gateId, isBossGate) => {
-      if (gameMode === 'endless') pendingEndlessPerk = { isBossGate };
-    },
-  });
-  board.reset();
-  board.enabled = true;
-  board.setStaminaReady(true);
+  mine = new Mine(ENDLESS_LEVEL, run.mods, resonance, wireMineCallbacks(true));
+  forge.onStageStart(0);
+  forge.enabled = true;
   $('level-name').textContent = ENDLESS_LEVEL.name;
   $('boss-bar').hidden = true;
   $('gate-row').hidden = true;
   $('lava-heat').style.opacity = '0';
-  $('combo').replaceChildren();
   state = 'play';
   hudT = 0;
   renderReso();
@@ -249,129 +268,69 @@ function triggerOverdrive() {
   if (overdriveTimer > 0) return;
   overdriveDuration = currentOverdriveDuration();
   overdriveTimer = overdriveDuration;
+  overdriveCooldown = BAL.overdriveCooldownSec;
   const dmgMul = currentOverdriveDmgMul();
   mine?.setOverdrive(true, dmgMul);
-  board.setStaminaReady(false);
+  forge.overdriveActive = true;
+  forge.fireAllBagWeapons('🔥全彈超載');
   hudT = 0;
   toast(
-    `🔥 散熱狂暴期（${overdriveDuration.toFixed(0)}s）：全武器傷害 +${Math.round((dmgMul - 1) * 100)}%・攻速大招加速！`,
+    `🔥 全彈超載齊射（${overdriveDuration.toFixed(1)}s）：全武器傷害 +${Math.round((dmgMul - 1) * 100)}%・鍛造與大招狂暴加速！`,
     '#ffa844',
   );
 }
 
-function acquire(id: WeaponId, power: number, note = '', forceSpawn = false) {
+function addResonanceXp(el: Element, amount: number) {
+  if (amount <= 0) return;
+  const cumReq = run.mods.cumThreshold;
+  cumGauge[el] += amount;
+  while (cumGauge[el] >= cumReq) {
+    cumGauge[el] -= cumReq;
+    const prevLv = resonance[el];
+    resonance[el] = gameMode === 'endless'
+      ? resonance[el] + 1
+      : Math.min(BAL.resonanceMaxLv, resonance[el] + 1);
+    const effLv = Math.min(BAL.resonanceMaxLv, resonance[el]);
+    const lvLabel = resonance[el] > BAL.resonanceMaxLv
+      ? `專精 +${Math.round((resonance[el] - BAL.resonanceMaxLv) * BAL.endlessResoExtraBonus * 100)}%`
+      : resonance[el] > prevLv ? `共鳴 Lv${resonance[el]}` : '共鳴滿載';
+    const map = ELEMENT_WEAPONS[el];
+    acquire(map.cum, 1 + effLv * 0.08, lvLabel);
+    if (prevLv < BAL.resonanceMaxLv && resonance[el] >= BAL.resonanceMaxLv) {
+      const idx = ELEMENTS.indexOf(el);
+      toast(`🎉 ${ELEMENT_INFO[el].name}共鳴滿級 Lv5！解鎖同名武器多把並存！`, ELEMENT_INFO[el].css, spriteUrl('tile', idx));
+    }
+  }
+  renderReso();
+}
+
+function acquire(id: WeaponId, power: number, note = '', forceSpawn = false, meta: WeaponSpawnMeta = {}) {
   if (!mine || !WEAPONS[id]) return;
-  const res = mine.acquireWeapon(id, power, forceSpawn);
+  const res = mine.acquireWeapon(id, power, forceSpawn, meta);
   const def = WEAPONS[id];
-  const meta = weaponElementMeta(def.element);
+  const elMeta = weaponElementMeta(def.element);
   if (res.mode === 'spawned') {
     run.weaponsMade++;
-    const badge = def.category === 'leg' || def.category === 'holy' ? '✦ '
-      : def.category === 't2' || def.category === 'cum' ? '★ ' : '';
+    const starPrefix = meta.star && meta.star > 1 ? `${'★'.repeat(meta.star)} ` : '';
+    const badge = starPrefix || (def.category === 'leg' || def.category === 'holy' ? '✦ '
+      : def.category === 't2' || def.category === 'cum' ? '★ ' : '');
     toast(
       `${badge}${def.name}${power > 1.01 ? ` ×${power.toFixed(2)}` : ''}${note ? `（${note}）` : ''}`,
-      meta.css,
+      elMeta.css,
       spriteUrl('weapon', id),
     );
   } else {
     toast(
       `${def.name} 強化 +${Math.round((res.weapon.dupMul - 1) * 100)}% 並回復 ${Math.round(BAL.dupHealPct * 100)}%HP！`,
-      meta.css,
+      elMeta.css,
       spriteUrl('weapon', id),
     );
   }
 }
 
-function onMoveEnd(counts: number[]) {
-  if (!mine || state === 'title' || state === 'result' || state === 'ending') return;
-  const t2 = run.mods.t2Threshold;
-  const t3 = run.mods.t3Threshold;
-  const cumReq = run.mods.cumThreshold;
-  const totalAll = counts.reduce((s, x) => s + x, 0);
-
-  // 0. Big-clear Stamina Refund + Overdrive Boost Stack
-  if (refundedThisCycle < BAL.maxRefundsPerCycle) {
-    const rawGain = totalAll >= BAL.refundTier2Count ? 2
-      : totalAll >= BAL.refundTier1Count ? 1 : 0;
-    const gain = Math.min(rawGain, BAL.maxRefundsPerCycle - refundedThisCycle);
-    if (gain > 0) {
-      if (!UNLIMITED_STAMINA) stamina = Math.min(maxStamina(), stamina + gain);
-      refundedThisCycle += gain;
-      const nextBonusPct = Math.round((currentOverdriveDmgMul() - 1) * 100);
-      toast(`⚡ 大消除 ${totalAll} 顆！回氣 +${gain} 格（狂暴蓄能 +${nextBonusPct}%）`, '#ffd866');
-    }
-  }
-
-  ELEMENTS.forEach((el, i) => {
-    const n = counts[i];
-    if (n <= 0) return;
-    const map = ELEMENT_WEAPONS[el];
-
-    // 1. Single-move weapon thresholds (3 / 4~5 / 6~8 / 9+)
-    if (n >= t3) {
-      if (map.leg) {
-        acquire(map.leg, 1 + BAL.powerPerExtra * (n - t3));
-      } else {
-        acquire(map.t2, 1.35 + BAL.powerPerExtra * (n - t3), '超強化');
-      }
-    } else if (n >= t2) {
-      acquire(map.t2, 1 + BAL.powerPerExtra * (n - t2));
-    } else if (n >= BAL.t1Threshold) {
-      acquire(map.t1, 1 + BAL.powerPerExtra * (n - BAL.t1Threshold));
-    } else if (n >= BAL.t0Threshold) {
-      acquire(map.low, 1);
-    }
-
-    // 2. Merged Cumulative + Resonance gauge (every tile counts!)
-    cumGauge[el] += n;
-    while (cumGauge[el] >= cumReq) {
-      cumGauge[el] -= cumReq;
-      const prevLv = resonance[el];
-      resonance[el] = gameMode === 'endless'
-        ? resonance[el] + 1
-        : Math.min(BAL.resonanceMaxLv, resonance[el] + 1);
-      const effLv = Math.min(BAL.resonanceMaxLv, resonance[el]);
-      const lvLabel = resonance[el] > BAL.resonanceMaxLv
-        ? `專精 +${Math.round((resonance[el] - BAL.resonanceMaxLv) * BAL.endlessResoExtraBonus * 100)}%`
-        : resonance[el] > prevLv ? `共鳴 Lv${resonance[el]}` : '累計達成';
-      acquire(map.cum, 1 + effLv * 0.08, lvLabel);
-      if (prevLv < BAL.resonanceMaxLv && resonance[el] >= BAL.resonanceMaxLv) {
-        toast(`🎉 ${ELEMENT_INFO[el].name}共鳴滿級 Lv5！解鎖同名武器多把並存！`, ELEMENT_INFO[el].css, spriteUrl('tile', i));
-      }
-    }
-  });
-
-  // 3. Holy Sword: total tiles cleared across all colours (incl. hearts) >= 20 in one move
-  if (totalAll >= BAL.holyTotalThreshold) {
-    acquire('excalibur', 1 + BAL.powerPerExtra * (totalAll - BAL.holyTotalThreshold), `總消 ${totalAll}`);
-  }
-
-  // 4. Hearts: heal all active weapons (+ 3s shield at 7+)
-  const hearts = counts[HEART];
-  if (hearts > 0) {
-    mine.healAll(BAL.heartHealPct * hearts * run.mods.healMul);
-    if (hearts >= BAL.heartShieldCount) {
-      mine.shield(BAL.heartShieldSec);
-      toast(`愛心 ×${hearts}：全體回血 + ${BAL.heartShieldSec} 秒無敵！`, '#ff8ab8', spriteUrl('tile', HEART));
-    } else if (mine.weapons.length) {
-      toast(`愛心 ×${hearts}：全體回血`, '#ff8ab8', spriteUrl('tile', HEART));
-    }
-  }
-
-  renderReso();
-  hudT = 0;
-
-  // 5. Auto-enter 8s Cooling & Weapon Overdrive window when AP reaches 0!
-  if (!UNLIMITED_STAMINA && stamina < 1 && overdriveTimer <= 0 && state === 'play') {
-    triggerOverdrive();
-  }
-
-  setTimeout(() => { if (!board.busy) $('combo').replaceChildren(); }, 900);
-}
-
 function onLevelEnd(win: boolean, reason: string) {
   state = 'ending';
-  board.enabled = false;
+  forge.enabled = false;
   pendingEndlessPerk = null;
   if (gameMode === 'campaign') {
     records.bestStage = Math.max(records.bestStage, run.level + (win ? 2 : 1));
@@ -385,7 +344,7 @@ function onLevelEnd(win: boolean, reason: string) {
   setTimeout(() => {
     if (gameMode === 'campaign' && win && run.level < LEVELS.length - 1) showCampaignPerks(reason);
     else showResult(win, reason);
-  }, 1600);
+  }, 1500);
 }
 
 // ------------------------------------------------------------------ dialogs
@@ -428,7 +387,7 @@ function showCampaignPerks(reason: string) {
   perkSource = 'campaign';
   state = 'perk';
   $('perk-h').textContent = '過關！選擇一項強化';
-  $('perk-sub').textContent = `${reason} 下一關：${LEVELS[run.level + 1].name}`;
+  $('perk-sub').textContent = `${reason} 下一關：${LEVELS[run.level + 1].name}（背包與金幣完整繼承！）`;
   populatePerkButtons(true);
   dlgPerk.showModal();
 }
@@ -437,7 +396,7 @@ function showEndlessPerks(isBossGate: boolean) {
   if (!mine) return;
   perkSource = 'endless';
   state = 'perk';
-  board.enabled = false;
+  forge.enabled = false;
   $('perk-h').textContent = isBossGate ? '🔓 首領結界破除！選擇深淵強化' : '🔓 守層結界破除！選擇深淵強化';
   $('perk-sub').textContent = `目前已突破 ${mine.gatesCleared} 道結界（深潛 ${mine.depthRows}m）— 選擇 1 項強化繼續下潛！`;
   populatePerkButtons(false);
@@ -452,21 +411,34 @@ dlgPerk.addEventListener('close', () => {
   perk.apply(run.mods);
   run.perks.push(perk.id);
 
+  if (run.mods.pendingGoldBonus > 0) {
+    forge.addGold(run.mods.pendingGoldBonus);
+    run.totalGold += run.mods.pendingGoldBonus;
+    run.mods.pendingGoldBonus = 0;
+  }
+  if (run.mods.pendingExpandTokens > 0) {
+    forge.addExpandTokens(run.mods.pendingExpandTokens);
+    run.mods.pendingExpandTokens = 0;
+  }
+  if (perk.id === 'reso') {
+    ELEMENTS.forEach((el) => {
+      resonance[el] = gameMode === 'endless'
+        ? resonance[el] + 1
+        : Math.min(BAL.resonanceMaxLv, resonance[el] + 1);
+    });
+    renderReso();
+  }
+  forge.setMods(run.mods);
+
   if (perkSource === 'endless') {
-    if (perk.id === 'stamina_max') {
-      if (overdriveTimer <= 0) stamina += 1;
-      renderStaminaTicks();
-    } else if (perk.id === 'reso') {
-      ELEMENTS.forEach((el) => { resonance[el] += 1; });
-      renderReso();
-    } else if (perk.id === 'stamina_spd' && overdriveTimer > 0) {
+    if (perk.id === 'stamina_spd' && overdriveTimer > 0) {
       mine?.setOverdrive(true, currentOverdriveDmgMul());
     }
     state = 'play';
-    board.enabled = true;
+    forge.enabled = true;
     hudT = 0;
   } else {
-    startLevel(run.level + 1);
+    startLevel(run.level + 1, false);
   }
 });
 
@@ -484,7 +456,8 @@ function showResult(win: boolean, reason: string) {
       <span>下潛深度</span><b>${depth}m（最佳紀錄 ${records.bestEndlessDepth}m）</b>
       <span>突破結界</span><b>${mine ? mine.gatesCleared : 0} 道</b>
       <span>討伐怪物</span><b>${mine ? mine.kills : 0} 隻</b>
-      <span>投入武器</span><b>${run.weaponsMade} 把</b>
+      <span>鍛造投射</span><b>${run.weaponsMade} 把</b>
+      <span>累積金幣</span><b>💰 ${run.totalGold}G</b>
       <span>收集資源</span><b>${res}</b>
       <span>本輪強化</span><b>${perks}</b>`;
   } else {
@@ -494,7 +467,8 @@ function showResult(win: boolean, reason: string) {
       <span>到達關卡</span><b>${LEVELS[run.level].name}</b>
       <span>本關深度</span><b>${mine ? mine.depthRows : 0} / ${LEVELS[run.level].depth}m</b>
       <span>討伐怪物</span><b>${mine ? mine.kills : 0} 隻</b>
-      <span>投入武器</span><b>${run.weaponsMade} 把</b>
+      <span>鍛造投射</span><b>${run.weaponsMade} 把</b>
+      <span>累積金幣</span><b>💰 ${run.totalGold}G</b>
       <span>收集資源</span><b>${res}</b>
       <span>本輪強化</span><b>${perks}</b>`;
   }
@@ -506,7 +480,7 @@ dlgResult.addEventListener('close', () => {
   dlgResult.returnValue = '';
   if (action === 'title') {
     state = 'title';
-    board.enabled = false;
+    forge.enabled = false;
     renderBestRecords();
     dlgTitle.showModal();
   } else {
@@ -520,7 +494,7 @@ function openWiki() {
   stateBeforeWiki = state;
   if (state === 'play') {
     state = 'paused';
-    board.enabled = false;
+    forge.enabled = false;
   }
   dlgWiki.showModal();
 }
@@ -531,7 +505,7 @@ dlgWiki.addEventListener('close', () => {
   dlgWiki.returnValue = '';
   if (state === 'paused') {
     state = stateBeforeWiki;
-    if (state === 'play') board.enabled = true;
+    if (state === 'play') forge.enabled = true;
   }
 });
 // light-dismiss fallback where `closedby` is unsupported
@@ -546,29 +520,17 @@ if (!('closedBy' in HTMLDialogElement.prototype)) {
 }
 
 // ------------------------------------------------------------------ HUD
-function renderStaminaTicks() {
-  const max = maxStamina();
-  const prog = $<HTMLProgressElement>('stamina-prog');
-  prog.max = max;
-  $('stamina-ticks').replaceChildren(...Array.from({ length: max }, () => document.createElement('i')));
-}
-
-function updateStamina(dt: number) {
-  if (noStaminaWarnT > 0) noStaminaWarnT = Math.max(0, noStaminaWarnT - dt);
+function updateOverdriveTimers(dt: number) {
   if (overdriveTimer > 0) {
     overdriveTimer -= dt;
     if (overdriveTimer <= 0) {
       overdriveTimer = 0;
       mine?.setOverdrive(false, 1);
-      stamina = maxStamina();
-      refundedThisCycle = 0;
-      board.setStaminaReady(true);
-      renderStaminaTicks();
+      forge.overdriveActive = false;
       hudT = 0;
-      toast(`⚡ 散熱完成！行動力一次補滿 ${stamina}/${stamina}！`, '#d09aff');
     }
-  } else {
-    board.setStaminaReady(UNLIMITED_STAMINA || stamina >= 1);
+  } else if (overdriveCooldown > 0) {
+    overdriveCooldown = Math.max(0, overdriveCooldown - dt);
   }
 }
 
@@ -590,36 +552,6 @@ function renderReso() {
       return li;
     }),
   );
-}
-
-function renderCombo(counts: number[]) {
-  const t2 = run.mods.t2Threshold;
-  const t3 = run.mods.t3Threshold;
-  const totalAll = counts.reduce((s, x) => s + x, 0);
-  const spans = counts.map((n, i) => {
-    if (n <= 0) return null;
-    const s = document.createElement('span');
-    const isHeart = i === HEART;
-    s.style.color = isHeart ? '#ff8ab8' : ELEMENT_INFO[ELEMENTS[i]].css;
-    s.textContent = `${isHeart ? '♥' : ELEMENT_INFO[ELEMENTS[i]].name} ${n}`;
-    if (!isHeart) {
-      if (n >= t3) s.className = 't3';
-      else if (n >= t2) s.className = 't2';
-      else if (n >= BAL.t1Threshold) s.className = 't1';
-      else if (n >= BAL.t0Threshold) s.className = 't0';
-    }
-    return s;
-  }).filter((s): s is HTMLSpanElement => !!s);
-
-  if (totalAll >= BAL.refundTier1Count) {
-    const tot = document.createElement('span');
-    tot.style.color = HOLY_INFO.css;
-    tot.className = totalAll >= BAL.holyTotalThreshold ? 't3' : 't2';
-    const refTag = totalAll >= BAL.refundTier2Count ? '⚡+2' : '⚡+1';
-    tot.textContent = `✨ 總消 ${totalAll} (${refTag})`;
-    spans.push(tot);
-  }
-  $('combo').replaceChildren(...spans);
 }
 
 function toast(text: string, color: string, icon?: string) {
@@ -651,40 +583,20 @@ function updateHud(dt: number) {
     saveRecords();
   }
 
-  // Stamina & Overdrive HUD
-  const rowEl = $('stamina-row');
-  const prog = $<HTMLProgressElement>('stamina-prog');
-  const lbl = $('stamina-lbl');
-  const odBadge = $('od-stacks');
+  // Overdrive button HUD
   const odBtn = $<HTMLButtonElement>('od-btn');
   const isOd = overdriveTimer > 0;
-  rowEl.classList.toggle('overdrive', isOd);
-  rowEl.classList.toggle('warn', !isOd && noStaminaWarnT > 0);
-
+  odBtn.classList.toggle('active', isOd);
   if (isOd) {
-    prog.max = overdriveDuration;
-    prog.value = Math.max(0, overdriveTimer);
-    prog.classList.remove('full');
-    lbl.textContent = `🔥 狂暴 ${overdriveTimer.toFixed(1)}s`;
-    lbl.classList.remove('empty');
-    const bonusPct = Math.round(((mine.overdriveDmgMul || currentOverdriveDmgMul()) - 1) * 100);
-    odBadge.hidden = false;
-    odBadge.textContent = `增傷 +${bonusPct}%`;
     odBtn.disabled = true;
-    odBtn.textContent = '散熱補氣中';
+    odBtn.textContent = `🔥 超載中 ${overdriveTimer.toFixed(1)}s`;
+  } else if (overdriveCooldown > 0) {
+    odBtn.disabled = true;
+    odBtn.textContent = `⏳ 超載冷卻 ${Math.ceil(overdriveCooldown)}s`;
   } else {
-    const maxS = maxStamina();
-    const wholeS = Math.floor(stamina + 1e-6);
-    prog.max = maxS;
-    prog.value = wholeS;
-    prog.classList.toggle('full', wholeS >= maxS);
-    lbl.textContent = `⚡ 行動力 ${wholeS}/${maxS}`;
-    lbl.classList.toggle('empty', wholeS < 1);
-    const nextPct = Math.round((currentOverdriveDmgMul() - 1) * 100);
-    odBadge.hidden = refundedThisCycle === 0 && run.mods.overdriveDmgBonus === 0;
-    if (!odBadge.hidden) odBadge.textContent = `蓄能 +${nextPct}%`;
-    odBtn.disabled = state !== 'play' || board.busy || (wholeS >= maxS && mine.weapons.length === 0);
-    odBtn.textContent = `🔥 釋放狂暴 (+${nextPct}%)`;
+    const bonusPct = Math.round((currentOverdriveDmgMul() - 1) * 100);
+    odBtn.disabled = state !== 'play';
+    odBtn.textContent = `🔥 全彈超載 (+${bonusPct}%)`;
   }
 
   // Topbar & depth
@@ -733,7 +645,7 @@ function updateHud(dt: number) {
   }
   $('lava-heat').style.opacity = (mine.lavaHeat * 0.9).toFixed(2);
 
-  // Shield & Boss bar (shown when weapons or camera approach the Boss arena, or Boss has taken damage)
+  // Shield & Boss bar
   $('shield').hidden = !(mine.time < mine.shieldUntil);
   const rawBoss = mine.boss && !mine.boss.dead ? mine.boss : null;
   const showBoss = Boolean(
@@ -801,7 +713,7 @@ function updateHud(dt: number) {
     btn.setAttribute('aria-pressed', isLocked ? 'true' : 'false');
     (btn.querySelector('.lock-ico') as HTMLElement).textContent = isLocked ? '🎯' : '';
     const dupEl = btn.querySelector('.dup') as HTMLElement;
-    dupEl.textContent = w.dupStacks > 0 ? `+${w.dupStacks}` : '';
+    dupEl.textContent = w.star > 1 ? `${'★'.repeat(w.star)}` : w.dupStacks > 0 ? `+${w.dupStacks}` : '';
     const [hp, ult] = btn.querySelectorAll('i');
     const f = Math.max(0, w.hp / w.maxHp);
     (hp as HTMLElement).style.width = `${f * 100}%`;
@@ -816,35 +728,26 @@ function updateHud(dt: number) {
   for (const [id, li] of cardEls) if (!alive.has(id)) { li.remove(); cardEls.delete(id); }
 }
 
-// board HUD reserves space at the top for resonance + stamina + combo line
-function layoutBoardPadding() {
-  const hud = document.querySelector('.board-hud') as HTMLElement;
-  board.setPadding(hud.offsetHeight + 4, 44);
-}
-new ResizeObserver(layoutBoardPadding).observe(document.querySelector('.board-hud')!);
-
 // ------------------------------------------------------------------ loop
 let last = performance.now();
 function frame(now: number) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (state === 'play') {
-    updateStamina(dt);
-    board.update(dt);
+    updateOverdriveTimers(dt);
+    forge.update(dt);
     mine?.update(dt);
-    if (pendingEndlessPerk && !board.busy && state === 'play') {
+    if (pendingEndlessPerk && state === 'play') {
       const p = pendingEndlessPerk;
       pendingEndlessPerk = null;
       showEndlessPerks(p.isBossGate);
     }
   } else if (state === 'ending') {
-    board.update(dt);
     mine?.update(dt);
   } else {
     mine?.updateView(dt);
   }
   updateHud(dt);
-  board.render();
   if (mine) mineRenderer.render(mine);
   requestAnimationFrame(frame);
 }
@@ -852,9 +755,7 @@ function frame(now: number) {
 // ------------------------------------------------------------------ boot
 initWiki(dlgWiki);
 renderBestRecords();
-renderStaminaTicks();
 renderReso();
-layoutBoardPadding();
 // show an idle preview mine behind the title screen
 mine = new Mine(LEVELS[0], run.mods, resonance, { onEnd: () => {}, onResource: () => {} });
 $('level-name').textContent = 'Falling Weapons';
@@ -864,13 +765,14 @@ requestAnimationFrame(frame);
 // debug helpers (dev console)
 Object.assign(window, {
   fw: {
-    spawn: (id: WeaponId, power = 1, force = false) => acquire(id, power, 'debug', force),
+    get forge() { return forge; },
+    get mine() { return mine; },
+    spawn: (id: WeaponId, power = 1, force = false, meta: WeaponSpawnMeta = {}) => acquire(id, power, 'debug', force, meta),
     all25: () => WEAPON_LIST.forEach((w, idx) => setTimeout(() => acquire(w.id, 1, 'debug', true), idx * 120)),
-    overdrive: () => triggerOverdrive(),
+    overdrive: () => { overdriveCooldown = 0; triggerOverdrive(); },
     endOverdrive: () => { if (overdriveTimer > 0) overdriveTimer = 0.01; },
-    fillStamina: () => { stamina = maxStamina(); hudT = 0; },
-    setStamina: (v: number) => { stamina = Math.max(0, Math.min(maxStamina(), v)); hudT = 0; },
-    get stamina() { return stamina; },
+    addGold: (n: number) => { forge.addGold(n); run.totalGold += n; },
+    addTokens: (n: number) => forge.addExpandTokens(n),
     get overdriveTimer() { return overdriveTimer; },
     setLava: (gapBlocks: number) => {
       if (!mine) return;
@@ -882,9 +784,8 @@ Object.assign(window, {
       else ELEMENTS.forEach((k) => { resonance[k] = BAL.resonanceMaxLv; });
       renderReso();
     },
-    get mine() { return mine; },
     win: () => mine && onLevelEnd(true, '（debug）'),
-    level: (i: number) => startLevel(i),
+    level: (i: number) => startLevel(i, false),
     startEndless: () => startRun('endless'),
   },
 });
