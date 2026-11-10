@@ -1341,9 +1341,11 @@ export class BackpackForge {
 
     this.inspectorEl.innerHTML = `
       <div class="insp-main">
-        <img class="insp-ico" src="${itemSpriteUrl(item.id)}" alt="">
         <div class="insp-body">
-          <div class="insp-title"><b style="color:${def.cssColor}">${def.name}${starBadge}</b> <small>${def.subtitle}</small></div>
+          <div class="insp-head">
+            <img class="insp-ico" src="${itemSpriteUrl(item.id)}" alt="">
+            <div class="insp-title"><b style="color:${def.cssColor}">${def.name}${starBadge}</b> <small>${def.subtitle}</small></div>
+          </div>
           ${statsLine}
           <div class="insp-recipe">💡 ${def.recipeHint}</div>
         </div>

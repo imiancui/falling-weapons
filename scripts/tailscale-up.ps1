@@ -115,13 +115,19 @@ Write-Host ""
 $serverArgs = @("scripts/tailscale-server.mjs", "--host", "127.0.0.1", "--port", "$Port", "--cert", $certFile, "--key", $keyFile)
 
 if ($Background) {
-  Write-Host "[5/5] Starting dual-protocol server in background on 127.0.0.1:$Port ..." -ForegroundColor Green
-  $proc = Start-Process -FilePath "node" -ArgumentList $serverArgs -WorkingDirectory $rootDir -WindowStyle Hidden -PassThru
+  Write-Host "[5/5] Starting dual-protocol server in background on 127.0.0.1:$Port (detached via Win32_Process)..." -ForegroundColor Green
+  $nodeExe = (Get-Command node).Source
+  $cmdLine = "`"$nodeExe`" `"$rootDir\scripts\tailscale-server.mjs`" --host 127.0.0.1 --port $Port --cert `"$certFile`" --key `"$keyFile`""
+  $cim = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+    CommandLine = $cmdLine
+    CurrentDirectory = $rootDir
+  }
+  $spawnedPid = $cim.ProcessId
   for ($i = 0; $i -lt 25; $i++) {
     Start-Sleep -Milliseconds 200
     $ready = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     if ($ready) {
-      Write-Host "Background server running (PID $($proc.Id)). Run 'npm run unshare' to stop." -ForegroundColor Green
+      Write-Host "Background server running (PID $spawnedPid). Run 'npm run unshare' to stop." -ForegroundColor Green
       exit 0
     }
   }

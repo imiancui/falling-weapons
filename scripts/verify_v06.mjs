@@ -109,10 +109,36 @@ await page.screenshot({ path: path.join(ARTIFACT_DIR, 'v06_wiki_heroes.png') });
 await page.locator('#dlg-wiki button[value="close"]').click();
 await page.waitForTimeout(150);
 
-// 5. Mobile Portrait check (390x844)
-await page.setViewportSize({ width: 390, height: 844 });
-await page.waitForTimeout(400);
-await page.screenshot({ path: path.join(ARTIFACT_DIR, 'v06_mobile_portrait.png') });
+// 5. Mobile Portrait & Mobile Landscape RWD check across modern smartphone screen sizes
+for (const vp of [
+  { name: 'iphone15_portrait', w: 393, h: 852, minBagPx: 215 },
+  { name: 'iphone17pro_portrait', w: 402, h: 874, minBagPx: 220 },
+  { name: 'iphone17promax_portrait', w: 440, h: 956, minBagPx: 240 },
+  { name: 'iphone17pro_landscape', w: 874, h: 402, minBagPx: 190 },
+]) {
+  await page.setViewportSize({ width: vp.w, height: vp.h });
+  await page.waitForTimeout(250);
+  const metrics = await page.evaluate(() => {
+    const bag = document.querySelector('.bag-stage-wrap')?.getBoundingClientRect();
+    const insp = document.querySelector('.bag-inspector')?.getBoundingClientRect();
+    const board = document.getElementById('board-pane')?.getBoundingClientRect();
+    return {
+      bagW: Math.round(bag?.width ?? 0),
+      bagH: Math.round(bag?.height ?? 0),
+      inspW: Math.round(insp?.width ?? 0),
+      inspH: Math.round(insp?.height ?? 0),
+      boardW: Math.round(board?.width ?? 0),
+      boardH: Math.round(board?.height ?? 0),
+    };
+  });
+  console.log(`RWD [${vp.name} ${vp.w}x${vp.h}]:`, metrics);
+  if (metrics.bagW < vp.minBagPx) {
+    throw new Error(`Expected bag-stage-wrap >= ${vp.minBagPx}px on ${vp.name}, got ${metrics.bagW}px`);
+  }
+  if (vp.name === 'iphone17pro_portrait') {
+    await page.screenshot({ path: path.join(ARTIFACT_DIR, 'v06_mobile_portrait.png') });
+  }
+}
 
 if (errors.length > 0) {
   throw new Error(`Runtime errors detected:\n${errors.join('\n')}`);
