@@ -2,14 +2,14 @@
 import * as THREE from 'three';
 import Matter from 'matter-js';
 import {
-  BAL, BLOCKS, BLOCK_GOLD, BOSS_CYCLE, weaponElementMeta,
-  type BlockType, type BossKind, type Element, type EnemyKind, type LevelDef, type Mods, type WeaponElement,
+  BAL, BLOCKS, BLOCK_GOLD, BOSS_CYCLE, HEROES, weaponElementMeta,
+  type BlockType, type BossKind, type Element, type EnemyKind, type HeroDef, type HeroId, type LevelDef, type Mods, type WeaponElement,
 } from '../data/config';
 import { WEAPONS, type WeaponId } from '../data/weapons';
 import { Tex } from '../gfx/pixel';
 import { Particles } from '../gfx/particles';
 import { Fx, type LightReq } from './fx';
-import { Weapon, onHit, type WeaponSpawnMeta } from './weapon';
+import { Weapon, onHit, zap, type WeaponSpawnMeta } from './weapon';
 import { Balrog, Boss, Enemy, Golem, SpiderQueen, createBoss } from './enemy';
 
 export interface DmgSrc {
@@ -115,6 +115,20 @@ export class Mine {
   overdriveActive = false;
   overdriveDmgMul = 1.0;
 
+  // v0.6 BALL x PIT Hero Battle-Line & Catch-and-Volley state
+  readonly heroDef: HeroDef;
+  heroX: number;
+  heroY: number;
+  heroInputDir = 0;
+  heroPointerActive = false;
+  heroPointerX = 0;
+  totalCatches = 0;
+  catchStreak = 0;
+  private heroGroup = new THREE.Group();
+  private heroSprite!: THREE.Mesh;
+  private heroPad!: THREE.Mesh;
+  private heroLine!: THREE.Mesh;
+
   lavaY = -1.5 * BAL.block;
   deepestY: number;
   shieldUntil = 0;
@@ -143,7 +157,9 @@ export class Mine {
     public mods: Mods,
     public resonance: Record<Element, number>,
     private cb: MineCallbacks,
+    public heroId: HeroId = 'bardin',
   ) {
+    this.heroDef = HEROES[this.heroId] ?? HEROES.bardin;
     this.fx = new Fx(this.scene);
     this.isEndless = level.goal === 'endless';
     this.timeLeft = this.isEndless ? Infinity : level.time + mods.timeBonus;
@@ -151,6 +167,9 @@ export class Mine {
     this.rows = this.isEndless ? BAL.airRows + 90 : BAL.airRows + level.depth + bottomRows;
     this.goalRow = BAL.airRows + level.depth;
     this.deepestY = (BAL.airRows - 0.5) * this.B;
+    this.heroX = (this.cols / 2) * this.B;
+    this.heroY = Math.max(0.8 * this.B, this.deepestY - BAL.heroLineGapRows * this.B);
+    this.heroPointerX = this.heroX;
     this.lastFocusY = this.deepestY;
     this.camY = this.camTargetY = -this.deepestY / this.B;
 
@@ -168,6 +187,7 @@ export class Mine {
     Matter.Composite.add(this.engine.world, [this.leftWall, this.rightWall]);
 
     this.setupScene();
+    this.setupHeroMesh();
     this.setupSlidingBackdrop();
     if (this.isEndless) {
       for (let r = 0; r < BAL.airRows; r++) {
@@ -290,12 +310,12 @@ export class Mine {
     pool.mesh.setColorAt(inst, this.tmpCol.setRGB(1, 1, 1));
     pool.mesh.instanceMatrix.needsUpdate = true;
     if (pool.mesh.instanceColor) pool.mesh.instanceColor.needsUpdate = true;
-    const hp = this.isIndestructible(t) ? Infinity : BLOCKS[t].hp * hpMul;
+    const hp = this.isIndestructible(t) ? Infinity : Math.round(BLOCKS[t].hp * hpMul * BAL.blockHpHardcoreMul);
     const st: BlockState = { type: t, hp, maxHp: hp, inst, body: null };
     this.grid.set(key, st);
     if (this.activeRows.has(r) && c > 0 && c < this.cols - 1) {
       const [bx, by] = this.center(r, c);
-      st.body = Matter.Bodies.rectangle(bx, by, this.B, this.B, { isStatic: true, friction: 0.4, restitution: 0.15, label: 'block' });
+      st.body = Matter.Bodies.rectangle(bx, by, this.B, this.B, { isStatic: true, friction: 0.35, restitution: 0.35, label: 'block' });
       st.body.plugin = { kind: 'block', r, c };
       Matter.Composite.add(this.engine.world, st.body);
     }
@@ -391,6 +411,194 @@ export class Mine {
       s.add(m);
       this.cracks.push(m);
     }
+  }
+
+  // ------------------------------------------------------------------ v0.6 BALL x PIT Hero Battle-Line & Volley
+  private setupHeroMesh() {
+    const tex = Tex.hero(this.heroId);
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex, transparent: true, alphaTest: 0.4,
+      emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.32, side: THREE.DoubleSide,
+    });
+    this.heroSprite = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 1.55), mat);
+    this.heroSprite.position.set(0, 0.12, 0.04);
+
+    // Glowing catch pad beneath the Hero's feet showing exact catch width
+    this.heroPad = new THREE.Mesh(
+      new THREE.PlaneGeometry(this.heroDef.catchWidth + 0.35, 0.24),
+      new THREE.MeshBasicMaterial({
+        color: this.heroDef.color,
+        transparent: true, opacity: 0.68, blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    );
+    this.heroPad.position.set(0, -0.62, 0.02);
+
+    // Subtle horizontal Battle Line across the shaft
+    this.heroLine = new THREE.Mesh(
+      new THREE.PlaneGeometry(this.cols - 2, 0.06),
+      new THREE.MeshBasicMaterial({
+        color: this.heroDef.color,
+        transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    );
+    this.heroLine.position.set(0, -0.62, 0.01);
+
+    this.heroGroup.add(this.heroLine, this.heroPad, this.heroSprite);
+    this.heroGroup.position.z = 0.82;
+    this.scene.add(this.heroGroup);
+    const hp = this.to3(this.heroX, this.heroY);
+    this.heroGroup.position.set(hp.x, hp.y, 0.82);
+    this.heroLine.position.x = -hp.x;
+  }
+
+  /** Set horizontal keyboard movement direction (-1 left, 0 idle, +1 right). */
+  setHeroInputDir(dir: number) {
+    this.heroInputDir = Math.sign(dir);
+  }
+
+  /** Set normalized pointer X (0..1 across right-hand mine pane) for mouse/touch Hero control. */
+  setHeroPointer(normX: number, active: boolean) {
+    const clamped = Math.max(0, Math.min(1, normX));
+    this.heroPointerX = (1.15 + clamped * (this.cols - 2.3)) * this.B;
+    this.heroPointerActive = active;
+  }
+
+  /** Updates Hero battle-line position, movement, and BALL x PIT Catch & Volley triggers. */
+  private updateHeroAndVolley(dt: number) {
+    const targetHeroY = Math.max(
+      1.1 * this.B,
+      Math.max(this.lavaY + 2.1 * this.B, this.deepestY - BAL.heroLineGapRows * this.B),
+    );
+    this.heroY += (targetHeroY - this.heroY) * Math.min(1, dt * 6.0);
+
+    const minX = 1.15 * this.B;
+    const maxX = (this.cols - 1.15) * this.B;
+    const moveSpd = this.heroDef.moveSpeed * 6.5 * this.B;
+    let moveDir = 0;
+
+    if (this.heroInputDir !== 0) {
+      moveDir = this.heroInputDir;
+      this.heroX += moveDir * moveSpd * dt;
+    } else if (this.heroPointerActive) {
+      const dx = this.heroPointerX - this.heroX;
+      if (Math.abs(dx) > 1.5) {
+        moveDir = Math.sign(dx);
+        this.heroX += moveDir * Math.min(Math.abs(dx), moveSpd * 1.35 * dt);
+      }
+    } else {
+      // Patrol Assist (55% speed) toward the nearest rising weapon when player is managing the Backpack
+      let bestW: Weapon | null = null;
+      let bestDistY = Infinity;
+      for (const w of this.weapons) {
+        if (w.dead || w.hitsSinceThrow < 1) continue;
+        if ((w.body.velocity.y < -0.4 || w.returningToHero) && w.y >= this.heroY - this.B * 0.5) {
+          const dy = w.y - this.heroY;
+          if (dy < bestDistY) {
+            bestDistY = dy;
+            bestW = w;
+          }
+        }
+      }
+      const targetX = bestW ? bestW.x : (this.cols / 2) * this.B;
+      const dx = targetX - this.heroX;
+      if (Math.abs(dx) > 2.5) {
+        moveDir = Math.sign(dx);
+        this.heroX += moveDir * Math.min(Math.abs(dx), moveSpd * 0.55 * dt);
+      }
+    }
+    this.heroX = Math.max(minX, Math.min(maxX, this.heroX));
+
+    // Update Hero visual position & facing
+    const hp = this.to3(this.heroX, this.heroY);
+    const bob = Math.abs(Math.sin(this.time * 5.2)) * 0.05;
+    this.heroGroup.position.set(hp.x, hp.y + bob, 0.82);
+    this.heroLine.position.x = -hp.x;
+    if (moveDir !== 0) {
+      this.heroSprite.scale.x = moveDir < 0 ? -1 : 1;
+    }
+
+    // Check rebounding weapons for Catch & Volley or Ceiling Miss
+    const catchHalfW = (this.heroDef.catchWidth * 0.55 + 0.35) * this.B;
+    for (const w of [...this.weapons]) {
+      if (w.dead || w.hitsSinceThrow < 1 || this.time - w.lastCatchTime < 0.36) continue;
+      const rising = w.body.velocity.y < 1.8 || w.returningToHero;
+      if (rising && Math.abs(w.y - this.heroY) <= 1.05 * this.B && Math.abs(w.x - this.heroX) <= catchHalfW) {
+        this.triggerHeroCatch(w);
+      } else if (w.body.velocity.y < 0 && w.y < this.heroY - 0.65 * this.B) {
+        // Missed catch -> hits battle-line ceiling (-8% HP wear, resets combo)
+        w.volleyStacks = 0;
+        w.returningToHero = false;
+        w.hitsSinceThrow = 0;
+        w.lastCatchTime = this.time;
+        this.catchStreak = 0;
+        if (!w.invuln) w.hp -= w.maxHp * BAL.missCeilingWearPct;
+        Matter.Body.setPosition(w.body, { x: w.x, y: this.heroY + 0.45 * this.B });
+        Matter.Body.setVelocity(w.body, { x: (Math.random() - 0.5) * 3.2, y: 4.5 });
+        const wp = this.to3(w.x, this.heroY);
+        this.fx.text(wp.x, wp.y + 0.45, '漏接 -8%HP', '#ff7a68', 0.72, 0.32);
+        if (w.hp <= 0) this.killWeapon(w);
+      }
+    }
+  }
+
+  /** Triggers a BALL x PIT Catch & Volley on `w`, applying 5s Volley Buff + Hero Signature Skill! */
+  triggerHeroCatch(w: Weapon) {
+    if (w.dead) return;
+    w.lastCatchTime = this.time;
+    this.totalCatches++;
+    this.catchStreak++;
+    w.volleyStacks = Math.min(BAL.volleyMaxStacks, w.volleyStacks + 1);
+    w.volleyUntil = this.time + BAL.volleyBuffSec;
+
+    // Heal weapon on catch (+22% HP, +18% for Excalibur)
+    const healPct = w.def.lifespanDecay ? 0.18 : BAL.volleyHealPct;
+    w.hp = Math.min(w.maxHp, w.hp + w.maxHp * healPct);
+
+    if (w.def.archetype === 'heavy') {
+      w.heavyVolleyReady = true;
+    }
+
+    // Aim toward nearest enemy below Hero or deepest point
+    const targetE = this.nearestEnemy(this.heroX, this.heroY + 4 * this.B, 10 * this.B);
+    const aimX = targetE ? targetE.x : this.heroX + (Math.random() - 0.5) * 2.4 * this.B;
+    const aimY = targetE ? targetE.y : this.deepestY + 2 * this.B;
+    w.throwFromHero(aimX, aimY, true);
+
+    // Hero Signature Volley Skill
+    switch (this.heroId) {
+      case 'bardin':
+        w.bardinShockReady = true;
+        break;
+      case 'kael':
+        zap(this, w, 3 + this.mods.thunderChainBonus, 6.5, w.dmg * 0.85);
+        break;
+      case 'vera':
+        w.veraCritUntil = this.time + BAL.volleyBuffSec;
+        if (this.totalCatches % 3 === 0 && this.weapons.length < BAL.maxWeapons) {
+          const phantom = this.spawnWeapon('needle', w.power, { forceSpawn: true });
+          this.schedule(6.0, () => {
+            if (!phantom.dead) this.killWeapon(phantom);
+          });
+        }
+        break;
+      case 'ignis':
+        w.ignisMeteorReady = true;
+        break;
+      case 'iris':
+        w.irisFrostUntil = this.time + BAL.volleyBuffSec;
+        this.healAll(0.12);
+        break;
+    }
+
+    const hp = this.to3(this.heroX, this.heroY);
+    this.fx.ring(hp.x, hp.y, 1.35, this.heroDef.color, 0.38);
+    this.sparks.burst(hp.x, hp.y, 0.7, 14, this.heroDef.color, 3.2, 0.45, -1);
+    const bonusPct = Math.round((BAL.volleyBaseDmgBonus + (w.volleyStacks - 1) * BAL.volleyStackDmgBonus) * 100);
+    this.fx.text(
+      hp.x, hp.y + 0.85,
+      `🏓 ${this.heroDef.volleyName}！×${this.catchStreak} (+${bonusPct}%)`,
+      '#ffe878', 0.9, 0.4,
+    );
   }
 
   private makeLava(): THREE.Mesh {
@@ -665,9 +873,8 @@ export class Mine {
     const mid = this.to3(...this.center(gate.sealRow, 4));
     const gateGold = Math.round((gate.isBossGate ? 90 : 35) * this.mods.goldGainMul);
     this.cb.onGold?.(gateGold, 'gate');
-    this.cb.onExpandToken?.(1);
     this.fx.ring(mid.x, mid.y, 3.4, 0x78f0ff, 0.6);
-    this.fx.text(mid.x, mid.y + 0.8, gate.isBossGate ? `🔓 首領結界破除！+${gateGold}G 🎒+1格` : `🔓 守層結界破除！+${gateGold}G 🎒+1格`, '#7ef8ff', 1.5, 0.54);
+    this.fx.text(mid.x, mid.y + 0.8, gate.isBossGate ? `🔓 首領結界破除！+${gateGold}G` : `🔓 守層結界破除！+${gateGold}G`, '#7ef8ff', 1.5, 0.54);
     this.fx.shake = Math.max(this.fx.shake, 0.22);
     if (this.isEndless) {
       this.cb.onGateCleared?.(gateId, gate.isBossGate);
@@ -764,31 +971,26 @@ export class Mine {
   }
 
   private findSpawnPoint(preferredCol?: number): [number, number] {
-    const [, half] = this.viewHalf();
-    const camRow = Math.floor(-this.camY);
-    const lavaRow = Math.floor(this.lavaY / this.B);
-    const deepRow = Math.floor(this.deepestY / this.B);
-    const start = Math.max(0, camRow - Math.floor(half) + 2, lavaRow + 2);
+    const spawnY = Math.max(this.lavaY + this.B * 0.8, this.heroY + this.B * 0.55);
     if (preferredCol !== undefined) {
       const c = Math.max(1, Math.min(this.cols - 2, preferredCol));
-      for (let r = Math.min(start, deepRow); r <= deepRow + 1; r++) {
-        if (!this.isSolid(r, c)) return this.center(r, c);
-      }
-      return [(c + 0.5) * this.B, Math.max(this.lavaY + this.B * 0.5, this.deepestY - this.B)];
+      const r = Math.floor(spawnY / this.B);
+      if (!this.isSolid(r, c)) return [(c + 0.5) * this.B, spawnY];
     }
-    for (let r = Math.min(start, deepRow); r <= deepRow + 1; r++) {
-      const empties: number[] = [];
-      for (let c = 1; c < this.cols - 1; c++) {
-        if ((!this.isSolid(r, c) && !this.isSolid(r + 1, c)) || (!this.isSolid(r, c) && r === deepRow)) empties.push(c);
-      }
-      if (empties.length) {
-        const c = empties[Math.floor(Math.random() * empties.length)];
-        return this.center(r, c);
+    const heroCol = Math.max(1, Math.min(this.cols - 2, Math.floor(this.heroX / this.B)));
+    const r = Math.floor(spawnY / this.B);
+    if (!this.isSolid(r, heroCol)) {
+      return [this.heroX, spawnY];
+    }
+    for (let dc = 1; dc < this.cols; dc++) {
+      for (const s of [-1, 1]) {
+        const c = heroCol + dc * s;
+        if (c >= 1 && c < this.cols - 1 && !this.isSolid(r, c)) {
+          return [(c + 0.5) * this.B, spawnY];
+        }
       }
     }
-    const deepest = this.deepestWeapon();
-    if (deepest) return [deepest.x, Math.max(this.lavaY + this.B * 0.5, deepest.y - this.B)];
-    return [this.cols * this.B / 2, Math.max(this.lavaY + this.B * 0.5, this.deepestY - this.B)];
+    return [this.heroX, Math.max(this.lavaY + this.B * 0.8, this.deepestY - this.B)];
   }
 
   deepestWeapon(): Weapon | null {
@@ -850,23 +1052,33 @@ export class Mine {
     for (const [w, t] of this.pendingHits) {
       if (w.dead) continue;
       w.hitCd = w.hitInterval;
+      // Vera passive & Volley crit: +25% crit chance (100% during Vera Volley) for +35% crit damage
+      const veraSpec = this.heroId === 'vera' && (w.def.element === 'poison' || w.def.archetype === 'pinball' || w.def.archetype === 'boomerang');
+      const veraCritActive = this.time < w.veraCritUntil;
+      const isVeraCrit = veraCritActive || (veraSpec && Math.random() < 0.25);
+      const hitDmg = w.dmg * (isVeraCrit ? 1.35 : 1.0);
+      const hitSrc = w.src('hit', isVeraCrit);
+
       if (t.kind === 'block') {
         const b = this.block(t.r, t.c);
         if (!b) continue;
-        if (!w.invuln && !w.def.lifespanDecay) w.hp -= BLOCKS[b.type].wear * this.mods.wearMul;
+        if (!w.invuln && !w.def.lifespanDecay) {
+          const irisWearMul = this.heroId === 'iris' && (w.def.element === 'ice' || w.def.element === 'holy') ? 0.7 : 1.0;
+          w.hp -= BLOCKS[b.type].wear * this.mods.wearMul * irisWearMul;
+        }
         if (this.isIndestructible(b.type)) {
           if (w.hp <= 0) this.killWeapon(w);
           continue;
         }
         w.lastHit = this.time;
-        this.damageCell(t.r, t.c, w.dmg, w.src('hit'));
+        this.damageCell(t.r, t.c, hitDmg, hitSrc);
         const [x, y] = this.center(t.r, t.c);
         const p = this.to3((x + w.x) / 2, (y + w.y) / 2);
         this.debris.burst(p.x, p.y, 0.6, 3, BLOCK_TINT[b.type] ?? 0x888888, 2, 0.4);
       } else {
         if (t.e.dead) continue;
         w.lastHit = this.time;
-        this.damageEnemy(t.e, w.dmg, w.src('hit'));
+        this.damageEnemy(t.e, hitDmg, hitSrc);
       }
       onHit(this, w, t);
       if (w.hp <= 0) this.killWeapon(w);
@@ -891,7 +1103,7 @@ export class Mine {
       if (!b) continue;
       if (on && !b.body) {
         const [x, y] = this.center(r, c);
-        b.body = Matter.Bodies.rectangle(x, y, this.B, this.B, { isStatic: true, friction: 0.4, restitution: 0.15, label: 'block' });
+        b.body = Matter.Bodies.rectangle(x, y, this.B, this.B, { isStatic: true, friction: 0.35, restitution: 0.35, label: 'block' });
         b.body.plugin = { kind: 'block', r, c };
         Matter.Composite.add(this.engine.world, b.body);
       } else if (!on && b.body) {
@@ -935,11 +1147,14 @@ export class Mine {
     const tint = BLOCK_TINT[b.type] ?? 0x888888;
     this.debris.burst(p.x, p.y, 0.5, 8, tint, 3, 0.7);
     const info = BLOCKS[b.type];
-    const baseG = BLOCK_GOLD[b.type] ?? 0;
-    if (baseG > 0 && (baseG >= 2 || Math.random() < 0.58)) {
-      const gold = Math.max(1, Math.round(baseG * this.mods.goldGainMul));
+    // v0.6 Hardcore Economy: dirt drops 0G; stone (25% -> 1G) & deepslate (35% -> 1G); ores/crystals/core drop full BLOCK_GOLD
+    let rawG = BLOCK_GOLD[b.type] ?? 0;
+    if (b.type === 'stone' && Math.random() < 0.25) rawG = 1;
+    else if (b.type === 'deepslate' && Math.random() < 0.35) rawG = 1;
+    if (rawG > 0) {
+      const gold = Math.max(1, Math.round(rawG * this.mods.goldGainMul));
       this.cb.onGold?.(gold, b.type);
-      if (baseG >= 5) {
+      if (rawG >= 5) {
         this.fx.text(p.x, p.y + 0.35, `+${gold}G`, '#ffd858', 0.85, 0.34);
       }
     }
@@ -974,9 +1189,10 @@ export class Mine {
     if (src.weapon?.def.id === 'boomerang' && e.frozen) d *= 2;
     if (src.kind !== 'dot' && e.venomUntil > this.time) d *= 1.5;
 
-    // 3-Boss elemental shield counterplay
+    // 3-Boss elemental shield counterplay (Bardin's Earth/Shock attacks also shatter Golem shell!)
+    const bardinShieldBreak = this.heroId === 'bardin' && (src.element === 'earth' || src.kind === 'shock');
     if (e instanceof Golem && e.shielded) {
-      if (src.kind === 'thunder' || src.kind === 'explosion' || src.kind === 'holy') e.breakShell();
+      if (src.kind === 'thunder' || src.kind === 'explosion' || src.kind === 'holy' || bardinShieldBreak) e.breakShell();
       else d *= 0.5;
     } else if (e instanceof SpiderQueen && e.shielded) {
       if (src.element === 'fire' || src.kind === 'fire' || src.crit) e.breakCocoon();
@@ -1006,9 +1222,7 @@ export class Mine {
     const killGold = Math.round(rawKillGold * this.mods.goldGainMul);
     this.cb.onGold?.(killGold, e.isBoss ? 'boss' : e.isElite ? 'elite' : 'enemy');
     if (e.isBoss || e.isElite) {
-      const tokens = e.isBoss ? 2 : 1;
-      this.cb.onExpandToken?.(tokens);
-      this.fx.text(p.x, p.y + 0.65, `💰+${killGold}G 🎒+${tokens}格`, '#ffd858', 1.25, 0.45);
+      this.fx.text(p.x, p.y + 0.65, `💰+${killGold}G`, '#ffd858', 1.25, 0.45);
     } else {
       this.fx.text(p.x, p.y + 0.45, `+${killGold}G`, '#ffd858', 0.9, 0.36);
     }
@@ -1347,7 +1561,9 @@ export class Mine {
       if (!focusW) focusW = this.deepestWeapon();
       if (focusW) this.lastFocusY = focusW.y;
       else this.lastFocusY = this.deepestY;
-      this.camTargetY = -this.lastFocusY / this.B + half * 0.16;
+      // Frame both the Hero Battle Line (heroY) and the deepest digging floor (lastFocusY)
+      const midY = this.lockedWeaponUid !== null ? this.lastFocusY : this.heroY * 0.38 + this.lastFocusY * 0.62;
+      this.camTargetY = -midY / this.B + half * 0.08;
     }
     this.camY += (this.camTargetY - this.camY) * Math.min(1, dt * (this.isManualCam ? 12 : 3.2));
     this.updateBackdropPosition(Math.floor(-this.camY));
@@ -1489,6 +1705,7 @@ export class Mine {
       }
       if (w.hp <= 0) this.killWeapon(w);
     }
+    this.updateHeroAndVolley(dt);
     for (const e of [...this.enemies]) {
       if (e.dead) continue;
       e.update(dt);

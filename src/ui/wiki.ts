@@ -1,5 +1,5 @@
 import {
-  BAL, BLOCKS, BLOCK_GOLD, ELEMENTS, ELEMENT_INFO, ORE_ICON, PERKS,
+  BAL, BLOCKS, BLOCK_GOLD, ELEMENTS, ELEMENT_INFO, HERO_LIST, ORE_ICON, PERKS,
   weaponElementMeta, type BlockType,
 } from '../data/config';
 import { BAG_ITEMS, itemSpriteUrl, SYNTHESIS_RECIPES_LIST, type RelicId } from '../backpack/items';
@@ -27,7 +27,7 @@ const RELIC_ORDER: RelicId[] = [
 
 export function initWiki(dialog: HTMLDialogElement) {
   const tabs: TabSpec[] = [
-    { id: 'rules', label: '背包與鍛造', render: renderRulesTab },
+    { id: 'rules', label: '英雄與背包', render: renderRulesTab },
     { id: 'synth', label: '合成與遺物', render: renderSynthAndRelicsTab },
     { id: 'weapons', label: '25 武器圖鑑', render: renderWeaponsTab },
     { id: 'blocks', label: '方塊與礦石', render: renderBlocksTab },
@@ -91,22 +91,50 @@ export function initWiki(dialog: HTMLDialogElement) {
 }
 
 function renderRulesTab(): string {
-  return `
-    <h3>🎒 7×7 鍛造背包自動產線・拖曳精準空投・全彈超載</h3>
-    <ul class="wiki-list">
-      <li><b>7×7 鍛造背包網格（開局 5×5 解鎖）</b>：將武器擺入已解鎖的背包格內，每把武器都有獨立的<b>自動鍛造冷卻條（3.4s ~ 7.2s）</b>。每當冷卻條跑滿，就會自動向右側礦坑投射一把套用完整鄰接加成的實體武器！<b>你可以隨時放手專心欣賞右側礦坑的彈雨與首領戰！</b></li>
-      <li><b>🚀 拖曳至右側礦坑精準空投</b>：遇到<b>守層結界菁英</b>或<b>首領護盾</b>時，你可以直接把背包或暫存欄中的<b>武器、🧨 矮人深層炸彈、🧪 女神甘露藥水</b>用滑鼠／手指<b>拖曳到右邊礦坑的指定直列放開</b>（或選取後點<b>「🚀 緊急空投」</b>），立即在該列發動 <b>${BAL.airDropPowerMul}× 超載精準空投</b>（武器充能達 45% 以上免費，未滿僅需 6G）！</li>
-      <li><b>🔥 全彈超載（冷卻 ${BAL.overdriveCooldownSec} 秒）</b>：點擊上方<b>「🔥 全彈超載」</b>按鈕，背包內所有武器會<b>立即同步齊射一輪</b>，並在接下來 <b>${BAL.overdriveSec} 秒</b>內使背包鍛造速度 <b>×1.65</b>、右側礦坑全武器碰撞攻速與大招集氣暴走加速、全傷害 <b>+${Math.round(BAL.overdriveBaseDmgBonus * 100)}%</b>！</li>
-      <li><b>💰 挖礦與殺怪即時經濟</b>：右側礦坑每敲碎一塊泥土、礦石或討伐怪物，都會<b>即時掉落金幣（💰）與對應元素共鳴經驗</b>，再加上每秒 <b>+${BAL.passiveGoldPerSec}G</b> 保底鍛造津貼；擊殺<b>👑 金冠守層菁英</b>與<b>三大首領</b>更會直接掉落<b>🎒 免費背包擴格券</b>！</li>
-      <li><b>操作快捷鍵與單指友善</b>：拖曳道具時按鍵盤 <b>R</b>（或右鍵點擊／點屬性面板「🔄 旋轉」）可旋轉多格武器；點選道具後再點空白背包格或另一件可合成道具，不用長距離拖曳也能輕鬆擺放與合成！</li>
-    </ul>
+  const heroRows = HERO_LIST.map((h) => `
+    <tr>
+      <th scope="row" style="color:${h.css}">
+        <div class="w-head">
+          <img class="w-ico" src="${spriteUrl('hero', h.id)}" alt="">
+          <div>
+            <b>${h.name}</b><br>
+            <small>${h.title}</small>
+          </div>
+        </div>
+      </th>
+      <td><b>${h.title}</b><br><small>移速 ${Math.round(h.moveSpeed * 100)}%｜接球寬 ${h.catchWidth} 格</small></td>
+      <td>${h.specialtyDesc}</td>
+      <td><b>【${h.volleyName}】</b><br>${h.volleyDesc}</td>
+    </tr>`).join('');
 
-    <h3>🏆 雙遊戲模式與守層結界房</h3>
+  return `
+    <h3>🦸 5 大出戰英雄與《BALL x PIT》接球回擊（Catch & Volley）</h3>
     <ul class="wiki-list">
-      <li><b>🔒 守層結界房（符文結界石）</b>：每隔一段深度設有一座橫跨全寬的地下結界大廳，地板由無法直接挖穿的<b>符文結界石</b>封鎖，並由頭戴金冠的<b>👑 守層菁英怪（2.5× HP、1.5× 傷害）</b>與巡邏怪物鎮守。必須<b>全滅該層結界守衛</b>，符文結界石才會碎裂放行並贈送 <b>+1 張免費擴格券</b>！</li>
-      <li><b>🏆 10 關闖關模式（背包全程繼承！）</b>：共 10 關（深度 55m → 160m）。<b>你的背包網格、已解鎖格子、所有高星傳說武器、鄰接遺物與金幣會在 1~10 關之間完整保留</b>，從第 1 關的小型鐵匠鋪一路養成為第 10 關迎戰深淵炎魔的終極神裝軍火庫！</li>
-      <li><b>♾️ 無盡深淵模式</b>：一鏡到底無時間限制，每深潛 <b>${BAL.endlessGateEvery}m</b> 破除一道守層結界即可當場挑選 1 張三選一強化卡並領取免費擴格券，每 <b>${BAL.endlessGateEvery * 3}m</b> 迎戰輪替首領，挑戰最深下潛紀錄！</li>
-      <li><b>失敗條件</b>：開局 ${BAL.lavaGrace} 秒後岩漿開始下降（距離 ${BAL.lavaWarnGap} 格內頂端出現熱浪與落火預警）。當<b>「岩漿淹過最深點」且「場上所有武器皆歸零毀滅」</b>（或闖關模式時間歸零）時判定失敗。</li>
+      <li><b>右側礦坑戰線與英雄投擲</b>：英雄站在最深挖掘層上方 <b>${BAL.heroLineGapRows} 格</b>的戰線向下投擲武器，隨礦坑向下挖掘同步推進。可用鍵盤 <b>A / D（或 ← / →）</b>、或<b>滑鼠／手指在右側礦坑橫向移動</b>操控英雄（忙於左側合成時，英雄也會以 55% 速度自動巡邏協防）。</li>
+      <li><b>🏓 接球回擊（Volley Buff，持續 ${BAL.volleyBuffSec} 秒）</b>：當武器撞擊方塊或怪物向上反彈回英雄身邊時，移動英雄<b>接住武器</b>會立即觸發強擊回投：<b>回復 +${Math.round(BAL.volleyHealPct * 100)}% 最大 HP（聖劍 +18% 壽命）</b>、<b>傷害 +${Math.round(BAL.volleyBaseDmgBonus * 100)}%（連續接球每層再 +${Math.round(BAL.volleyStackDmgBonus * 100)}%，最高 5 層 +95%）</b>、<b>投速 ×${BAL.volleySpeedMul}</b>，並觸發英雄專屬<b>【接球特技】</b>！若漏接撞上頂部戰線則會扣除 <b>${Math.round(BAL.missCeilingWearPct * 100)}% HP</b> 並中斷連段。</li>
+      <li><b>⚖️ 5 大武器物理手感原型</b>：每把武器皆具備獨立的<b>反彈力（A+ ~ C）、投速（12.2 ~ 18.5）與重量</b>——<b>🏓 高彈速射型</b>（碰撞即高速反彈）、<b>🪃 弧線迴旋型</b>（撞擊 2 次自動弧線返航）、<b>⚖️ 均衡空戰型</b>、<b>🪨 超重碎岩型</b>（接住回投首擊爆發 <b>×${BAL.heavyVolleyDmgMul} 重擊扣殺</b>）、<b>🚀 貫穿噴射型</b>（連鑽 3 層後點火噴射返航）！</li>
+    </ul>
+    <div tabindex="0" role="region" aria-labelledby="cap-heroes" class="table-wrapper">
+      <table class="wiki-table" style="--label-2:'擅長武器與體質'; --label-3:'英雄被動與起手'; --label-4:'接球回擊特技'">
+        <caption id="cap-heroes">5 大可選英雄專精、起手配置與接球特技一覽</caption>
+        <thead>
+          <tr>
+            <th scope="col">英雄</th>
+            <th scope="col">擅長武器與體質</th>
+            <th scope="col">英雄被動與起手</th>
+            <th scope="col">接球回擊特技</th>
+          </tr>
+        </thead>
+        <tbody>${heroRows}</tbody>
+      </table>
+    </div>
+
+    <h3>🎒 7×7 鍛造背包自動產線・硬核經濟・全彈超載</h3>
+    <ul class="wiki-list">
+      <li><b>7×7 鍛造背包網格（開局 5×5 解鎖）</b>：將武器擺入已解鎖的背包格內，每把武器都有獨立的<b>自動鍛造冷卻條（3.4s ~ 7.2s）</b>，跑滿即由英雄向下投出實體武器！你也能把<b>武器、🧨 矮人深層炸彈、🧪 女神甘露藥水</b>直接<b>拖曳到右邊礦坑指定直列</b>發動 <b>${BAL.airDropPowerMul}× 超載精準空投</b>！</li>
+      <li><b>🔥 全彈超載（冷卻 ${BAL.overdriveCooldownSec} 秒）</b>：點擊<b>「🔥 全彈超載」</b>，背包內所有武器<b>立即同步齊射一輪</b>，並在 <b>${BAL.overdriveSec} 秒</b>內使鍛造速度 <b>×1.65</b>、全傷害 <b>+${Math.round(BAL.overdriveBaseDmgBonus * 100)}%</b>！</li>
+      <li><b>💀 硬核經濟與付費擴格</b>：開局金幣 <b>${BAL.startGold}G</b>、普通泥土不掉金幣（需挖掘礦脈、水晶與討伐怪物／首領），並<b>全面取消免費擴格券</b>；擴充背包格需花費 <b>${BAL.expandSlotBaseCost}G 起（每格 +${BAL.expandSlotCostStep}G）</b>或挑選強化卡「次元背包術」。</li>
+      <li><b>🏆 10 關闖關 ＆ ♾️ 無盡深淵</b>：10 關闖關模式背包與金幣全程繼承；無盡深淵模式每 <b>${BAL.endlessGateEvery}m</b> 破除守層結界可挑選 1 張強化卡，每 <b>${BAL.endlessGateEvery * 3}m</b> 迎戰輪替首領！</li>
     </ul>
   `;
 }
@@ -245,7 +273,7 @@ function renderWeaponsTab(): string {
           </div>
         </th>
         <td><b>${bagDef.shapeName}</b>｜商店 💰${bagDef.cost}G<br>⚡ 鍛造每 <b>${bagDef.forgeCd}s</b> 投射<br><small class="muted">${bagDef.recipeHint}</small></td>
-        <td>HP <b>${w.baseHp}</b>${w.lifespanDecay ? ' <small>(壽命型)</small>' : ''}<br>傷害 <b>${w.dmg}</b></td>
+        <td>HP <b>${w.baseHp}</b>${w.lifespanDecay ? ' <small>(壽命型)</small>' : ''}<br>傷害 <b>${w.dmg}</b><br><small style="color:#ffd878">彈力 <b>${w.bounceRating}</b>｜投速 <b>${w.throwSpeed}</b>｜${w.weightLabel}（${w.archetypeName}）</small></td>
         <td>${w.passive}</td>
         <td>${ultHtml}</td>
       </tr>`;
@@ -291,13 +319,14 @@ function renderBlocksTab(): string {
   const rows = BLOCK_ORDER.map((t) => {
     const b = BLOCKS[t];
     const hpText = Number.isFinite(b.hp)
-      ? `${b.hp}（闖關 ×1.0~×3.2／無盡每結界 ×${BAL.endlessBlockScalePerGate}）`
+      ? `${Math.round(b.hp * BAL.blockHpHardcoreMul)}（硬核 +30%｜闖關 ×1.0~×3.2）`
       : '無法直接挖掘';
     const goldReward = BLOCK_GOLD[t] ?? 0;
+    const probGold = t === 'stone' ? '💰 25% 掉 1G' : t === 'deepslate' ? '💰 35% 掉 1G' : '';
     const oreText = [
-      goldReward > 0 ? `💰 +${goldReward}G` : '',
+      goldReward > 0 ? `💰 +${goldReward}G` : probGold,
       b.ore ? `${ORE_ICON[b.ore]} 資源＋共鳴經驗` : '',
-    ].filter(Boolean).join('｜') || '—';
+    ].filter(Boolean).join('｜') || '無（0G）';
     return `
       <tr>
         <th scope="row">
@@ -340,10 +369,11 @@ function renderEnemiesTab(): string {
   const rows = keys.map((k) => {
     const e = ENEMY_STATS[k];
     const isBoss = bossKeys.has(k);
+    const hardcoreHp = Math.round(e.hp * BAL.enemyHpHardcoreMul);
     const atkText = k === 'spider' ? `射程 ${e.range} 格／CD ${e.cd}s（緩速網）`
       : k === 'mushroom' ? `偵測 ${e.range} 格／引信 1s 自爆 ${e.dmg} 傷`
-        : isBoss ? `接觸每 0.5s 造成 ${e.dmg} 傷＋專屬範圍彈幕／召喚／元素護盾（討伐賞金 💰95G ＋ 🎒擴格券×2）`
-          : `射程 ${e.range} 格／每次 ${e.dmg} 傷（討伐賞金 💰9G，金冠菁英 💰26G ＋ 🎒擴格券×1）`;
+        : isBoss ? `接觸每 0.5s 造成 ${e.dmg} 傷＋專屬範圍彈幕／召喚／元素護盾（討伐賞金 💰150G）`
+          : `射程 ${e.range} 格／每次 ${e.dmg} 傷（討伐賞金 💰15G，金冠菁英 💰45G）`;
     return `
       <tr>
         <th scope="row">
@@ -352,7 +382,7 @@ function renderEnemiesTab(): string {
             <b>${e.name}${isBoss ? ' (Boss)' : ''}</b>
           </div>
         </th>
-        <td>${e.hp.toLocaleString()}${isBoss ? '（無盡隨深度成長）' : `（闖關 ×1.0~×18.0／無盡每結界 ×${BAL.endlessEnemyScalePerGate}）`}</td>
+        <td>${hardcoreHp.toLocaleString()}${isBoss ? '（硬核 +60%｜無盡隨深度成長）' : `（硬核 +60%｜闖關 ×1.0~×18.0）`}</td>
         <td>${atkText}</td>
         <td>${e.desc}</td>
       </tr>`;

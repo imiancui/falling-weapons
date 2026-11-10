@@ -1,6 +1,6 @@
 import {
-  BAL, ELEMENTS, ELEMENT_INFO, weaponElementMeta,
-  type Element, type Mods,
+  BAL, ELEMENTS, ELEMENT_INFO, HEROES, weaponElementMeta,
+  type Element, type HeroId, type Mods,
 } from '../data/config';
 import { ELEMENT_WEAPONS, WEAPONS, type WeaponId } from '../data/weapons';
 import type { WeaponSpawnMeta } from '../mine/weapon';
@@ -56,8 +56,10 @@ export class BackpackForge {
   shop: ShopOffer[] = [];
   shopLocked = false;
   gold: number = BAL.startGold;
-  expandTokens = 1;
+  expandTokens = 0;
   expansionsBought = 0;
+  refreshesThisStage = 0;
+  heroId: HeroId = 'bardin';
 
   selectedUid: number | null = null;
   hoveredUid: number | null = null;
@@ -134,11 +136,13 @@ export class BackpackForge {
     this.renderInspector();
   }
 
-  resetForNewRun(mods: Mods) {
+  resetForNewRun(mods: Mods, heroId: HeroId = this.heroId) {
     this.mods = mods;
+    this.heroId = heroId;
     this.gold = BAL.startGold;
-    this.expandTokens = 1;
+    this.expandTokens = 0; // v0.6 Hardcore: zero free expand tokens at start
     this.expansionsBought = 0;
+    this.refreshesThisStage = 0;
     this.goldAcc = 0;
     this.items = [];
     this.selectedUid = null;
@@ -150,32 +154,24 @@ export class BackpackForge {
       Array.from({ length: this.G }, (__, c) => r >= 1 && r <= 5 && c >= 1 && c <= 5),
     );
 
-    // Starter kit:
-    // 1. T1 Axe (or Sword) at center (2, 2) + adjacent Whetstone at (2, 1)
-    // 2. Two matching Low-tier weapons at (2, 3) and (3, 3) so player can immediately merge them or let them fire!
-    // 3. One Dwarven Bomb in storage slot 0 for instant tactical fun
-    const w1: PlacedItem = {
-      uid: nextItemUid++, id: 'axe', star: 1, rot: 0,
-      location: 'bag', row: 2, col: 2, slot: -1, forgeTimer: 3.8,
-    };
-    const r1: PlacedItem = {
-      uid: nextItemUid++, id: 'whetstone', star: 1, rot: 0,
-      location: 'bag', row: 2, col: 1, slot: -1, forgeTimer: 0,
-    };
-    const low1: PlacedItem = {
-      uid: nextItemUid++, id: 'torch', star: 1, rot: 0,
-      location: 'bag', row: 2, col: 4, slot: -1, forgeTimer: 2.9,
-    };
-    const low2: PlacedItem = {
-      uid: nextItemUid++, id: 'torch', star: 1, rot: 0,
-      location: 'bag', row: 3, col: 4, slot: -1, forgeTimer: 1.8,
-    };
-    const bomb: PlacedItem = {
-      uid: nextItemUid++, id: 'mine_bomb', star: 1, rot: 0,
-      location: 'storage', row: -1, col: -1, slot: 0, forgeTimer: 0,
-    };
-    this.items.push(w1, r1, low1, low2, bomb);
-    this.selectedUid = w1.uid;
+    // Populate starter kit from selected Hero's loadout
+    const hero = HEROES[heroId];
+    for (const s of hero.starterItems) {
+      const def = BAG_ITEMS[s.id as BagItemId];
+      if (!def) continue;
+      this.items.push({
+        uid: nextItemUid++,
+        id: s.id as BagItemId,
+        star: 1,
+        rot: 0,
+        location: s.location,
+        row: s.row,
+        col: s.col,
+        slot: s.slot,
+        forgeTimer: def.forgeCd * 0.78,
+      });
+    }
+    this.selectedUid = this.items[0]?.uid ?? null;
 
     this.rollShop(0, true);
     this.recomputeAllBuffs();
@@ -184,6 +180,7 @@ export class BackpackForge {
 
   /** Called at the start of a new Campaign stage (keeps the player's entire backpack & gold!). */
   onStageStart(stageIndex: number) {
+    this.refreshesThisStage = 0;
     // Give all bag weapons 85% initial charge so an opening volley fires quickly!
     for (const it of this.items) {
       if (it.location === 'bag' && BAG_ITEMS[it.id].kind === 'weapon') {
@@ -200,7 +197,7 @@ export class BackpackForge {
     // Immediately launch the primary bag weapon so the mine has instant action at 0:00!
     const firstW = this.items.find((it) => it.location === 'bag' && BAG_ITEMS[it.id].kind === 'weapon');
     if (firstW) {
-      this.launchFromBagItem(firstW, '開場鍛造');
+      this.launchFromBagItem(firstW, '開場投擲');
     }
   }
 
@@ -229,11 +226,11 @@ export class BackpackForge {
   }
 
   nextExpandCost(): number {
-    return BAL.expandSlotBaseCost + this.expansionsBought * 3;
+    return BAL.expandSlotBaseCost + this.expansionsBought * BAL.expandSlotCostStep;
   }
 
   shopRefreshCost(): number {
-    return Math.max(1, BAL.shopRefreshCost - this.mods.shopDiscount);
+    return Math.max(2, BAL.shopRefreshCost + this.refreshesThisStage * BAL.shopRefreshCostStep - this.mods.shopDiscount);
   }
 
   // ------------------------------------------------------------------ Grid & Shape Math
@@ -399,9 +396,22 @@ export class BackpackForge {
     return Math.max(1.1, def.forgeCd * cdMul);
   }
 
+  getHeroSpecialtyMul(item: PlacedItem): number {
+    const def = BAG_ITEMS[item.id];
+    if (def.kind !== 'weapon' || !def.weaponId) return 1.0;
+    const wDef = WEAPONS[def.weaponId];
+    if (this.heroId === 'bardin' && (wDef.element === 'earth' || wDef.archetype === 'heavy' || def.baseShape.length >= 4)) {
+      return 1.30;
+    }
+    if (this.heroId === 'ignis' && (wDef.element === 'fire' || wDef.id === 'meteor' || wDef.id === 'dragon')) {
+      return 1.35;
+    }
+    return 1.0;
+  }
+
   getItemTotalPower(item: PlacedItem): number {
     const sum = this.buffCache.get(item.uid);
-    return this.getStarPowerMul(item.star) * (sum ? sum.dmgMul : 1);
+    return this.getStarPowerMul(item.star) * (sum ? sum.dmgMul : 1) * this.getHeroSpecialtyMul(item);
   }
 
   // ------------------------------------------------------------------ Frame Update & Auto-Forge
@@ -615,6 +625,7 @@ export class BackpackForge {
         return;
       }
       this.gold -= cost;
+      this.refreshesThisStage++;
     }
 
     const lowIds: BagItemId[] = ['pick', 'baton', 'needle', 'torch', 'icicle'];
@@ -1317,8 +1328,8 @@ export class BackpackForge {
       const effDmg = Math.round(wDef.dmg * power * this.mods.dmgMul);
       const effHp = Math.round(wDef.baseHp * (1 + (power - 1) * 0.6) * this.mods.hpMul * (sum ? sum.hpMul : 1));
       const cd = this.getEffectiveForgeCd(item);
-      const twinTxt = sum && sum.twinChance > 0 ? `｜👯 雙連 ${Math.round(sum.twinChance * 100)}%` : '';
-      statsLine = `<div class="insp-stats">⚔️ 傷害 <b>${effDmg}</b> (${Math.round(power * 100)}%) ｜ ❤️ HP <b>${effHp}</b> ｜ ⚡ 鍛造每 <b>${cd.toFixed(1)}s</b> 投射${twinTxt}</div>`;
+      const twinTxt = sum && sum.twinChance > 0 ? `｜👯 ${Math.round(sum.twinChance * 100)}%` : '';
+      statsLine = `<div class="insp-stats">⚔️ 傷害 <b>${effDmg}</b> (${Math.round(power * 100)}%)｜❤️ <b>${effHp}</b>｜⚡ 每 <b>${cd.toFixed(1)}s</b>｜彈力 <b>${wDef.bounceRating}</b>・投速 <b>${wDef.throwSpeed}</b>・<b>${wDef.weightLabel}</b>${twinTxt}</div>`;
     } else {
       statsLine = `<div class="insp-stats">${def.desc}</div>`;
     }

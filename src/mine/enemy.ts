@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import Matter from 'matter-js';
-import type { BossKind, EnemyKind } from '../data/config';
+import { BAL, type BossKind, type EnemyKind } from '../data/config';
 import { Tex } from '../gfx/pixel';
 import type { Mine } from './world';
 import type { Weapon } from './weapon';
@@ -59,7 +59,7 @@ export class Enemy {
 
   constructor(public m: Mine, public kind: EnemyKind | BossKind, public x: number, public y: number, hpMul: number, size = 0.85) {
     this.size = size;
-    this.maxHp = this.hp = ENEMY_STATS[kind].hp * hpMul;
+    this.maxHp = this.hp = Math.round(ENEMY_STATS[kind].hp * hpMul * BAL.enemyHpHardcoreMul);
     this.dmgMul = Math.min(2.8, 1 + Math.log2(Math.max(1, hpMul)) * 0.18);
     const B = m.B;
     this.body = Matter.Bodies.rectangle(x, y, B * size * 0.85, B * size * 0.85, { isStatic: true, label: 'enemy', friction: 0.3, restitution: 0.4 });

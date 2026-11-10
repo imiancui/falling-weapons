@@ -1183,6 +1183,105 @@ const RELIC_ART: Record<string, { rows: string[]; pal: Record<string, string> }>
   heal_potion: { rows: R_HEAL_POTION, pal: { o: '#281020', W: '#ffffff', S: '#c89868', L: '#ffd0e8', P: '#ff4890' } },
 };
 
+const H_BARDIN = [
+  '....oooooooo....',
+  '...oYYYYYYYYo...',
+  '..oYYSSSSSSYYo..',
+  '..oSSSSSSSSSSo..',
+  '..oSSkSSSSkSSo..',
+  '...oSSRRRRSSo...',
+  '..oRRRRRRRRRRo..',
+  '.oRRRRRRRRRRRRo.',
+  '.oBBBRRRRRRBBBo.',
+  'oBBBBBRRRRBBBBBo',
+  'oBBYYBBBBBBYYBBo',
+  '.oo.oBBBBBBBo.oo',
+  '....oBBo.oBBo...',
+  '....oSSo.oSSo...',
+  '....oooo.oooo...',
+  '................',
+];
+const H_KAEL = [
+  '.....oooooo.....',
+  '...ooYYYYYYoo...',
+  '..oYYYYLLYYYYo..',
+  '..oYSSSSSSSSYo..',
+  '...oSkSSSSkSo...',
+  '...oSSSSSSSSo...',
+  '..oCCCCCCCCCCo..',
+  '.oCCYYYYYYYYCCo.',
+  'oCCoCCCCCCCCoCCo',
+  'oCo.oCCCCCCo.oCo',
+  '....oCCYYCCo....',
+  '....oCCCCCCo....',
+  '....oCCo.oCCo...',
+  '...oYYYo.oYYYo..',
+  '...ooooo.ooooo..',
+  '................',
+];
+const H_VERA = [
+  '....oooooooo....',
+  '...oPPPPPPPPo...',
+  '..oPPPPPPPPPPo..',
+  '..oPPkGGGGkPPo..',
+  '..oPPPPPPPPPPo..',
+  '...oPPPPPPPPo...',
+  '..oDDDDDDDDDDo..',
+  '.oDDGPPPPPPGDo..',
+  'oDDoDDDDDDDDoDDo',
+  '.oo.oDDGGDDo.oo.',
+  '....oDDDDDDo....',
+  '....oDDo.oDDo...',
+  '...oPPPo.oPPPo..',
+  '...ooooo.ooooo..',
+  '................',
+  '................',
+];
+const H_IGNIS = [
+  '..oo...oo...oo..',
+  '.oYYo.oYYo.oYYo.',
+  '.oRRYoYLLYooRRo.',
+  '..oRRRRRRRRRRo..',
+  '...oSkSSSSkSo...',
+  '...oSSSSSSSSo...',
+  '..oRRRRRRRRRRo..',
+  '.oRRYYYYYYYYRRo.',
+  'oRRoRRRRRRRRoRRo',
+  'oRo.oRRYYRRo.oRo',
+  '....oRRRRRRo....',
+  '....oRRo.oRRo...',
+  '...oDDDo.oDDDo..',
+  '...ooooo.ooooo..',
+  '................',
+  '................',
+];
+const H_IRIS = [
+  '.....oooooo.....',
+  '....oYYYYYYo....',
+  '...oCCCCCCCCo...',
+  '..oCCWWWWWWCCo..',
+  '..oCWkSSSSkWCo..',
+  '...oSSSSSSSSo...',
+  '..oWWWWWWWWWWo..',
+  '.oWWCCCCCCCCWWo.',
+  'oWWoWWWWWWWWoWWo',
+  '.oo.oWWYYWWo.oo.',
+  '....oWWWWWWo....',
+  '...oWWCCCCWWo...',
+  '...oWWo..oWWo...',
+  '...oooo..oooo...',
+  '................',
+  '................',
+];
+
+const HERO_ART: Record<string, { rows: string[]; pal: Palette }> = {
+  bardin: { rows: H_BARDIN, pal: { o: '#18100c', Y: '#ffd458', S: '#b0b8c8', k: '#1a1a1a', R: '#d86828', B: '#7c4c28' } },
+  kael: { rows: H_KAEL, pal: { o: '#141828', Y: '#ffe858', L: '#ffffff', S: '#f4d4b8', k: '#1a2848', C: '#3888e8' } },
+  vera: { rows: H_VERA, pal: { o: '#100818', P: '#5c2c7c', G: '#68ff48', k: '#d8ffb8', D: '#281c38' } },
+  ignis: { rows: H_IGNIS, pal: { o: '#200804', Y: '#ffe058', L: '#ffffff', R: '#e83818', S: '#e8c098', k: '#380804', D: '#38201c' } },
+  iris: { rows: H_IRIS, pal: { o: '#102438', Y: '#ffe878', C: '#68d4ff', W: '#f0f8ff', S: '#ffe0cc', k: '#1c4878' } },
+};
+
 // ---------------------------------------------------------------- cache
 const cache = new Map<string, THREE.Texture>();
 function cached(key: string, make: () => HTMLCanvasElement): THREE.Texture {
@@ -1205,6 +1304,10 @@ export const Tex = {
   },
   weapon: (id: WeaponId) => cached('w_' + id, () => sprite(WEAPON_ART[id].rows, WEAPON_ART[id].pal)),
   enemy: (id: string) => cached('e_' + id, () => sprite(ENEMY_ART[id].rows, ENEMY_ART[id].pal)),
+  hero: (id: string) => {
+    const h = HERO_ART[id] ?? HERO_ART.bardin;
+    return cached('h_' + id, () => sprite(h.rows, h.pal));
+  },
   tile: (kind: number) => cached('t_' + kind, () => tileCanvas(kind)),
   rainbow: () => cached('rainbow', rainbowCanvas),
   special: (k: 'lineH' | 'lineV' | 'bomb') => cached('s_' + k, () => specialOverlay(k)),
@@ -1225,7 +1328,7 @@ export const Tex = {
 
 /** Data-URL versions for DOM UI (weapon cards, tile icons in HUD, Wiki tables). */
 const urlCache = new Map<string, string>();
-export function spriteUrl(kind: 'weapon' | 'relic' | 'tile' | 'enemy' | 'block' | 'rainbow' | 'special', id: string | number): string {
+export function spriteUrl(kind: 'weapon' | 'relic' | 'hero' | 'tile' | 'enemy' | 'block' | 'rainbow' | 'special', id: string | number): string {
   const key = kind + ':' + id;
   let u = urlCache.get(key);
   if (!u) {
@@ -1234,6 +1337,10 @@ export function spriteUrl(kind: 'weapon' | 'relic' | 'tile' | 'enemy' | 'block' 
     else if (kind === 'relic') {
       const r = RELIC_ART[id as string] ?? RELIC_ART.whetstone;
       c = sprite(r.rows, r.pal);
+    }
+    else if (kind === 'hero') {
+      const h = HERO_ART[id as string] ?? HERO_ART.bardin;
+      c = sprite(h.rows, h.pal);
     }
     else if (kind === 'enemy') c = sprite(ENEMY_ART[id as string].rows, ENEMY_ART[id as string].pal);
     else if (kind === 'block') { seed = 1000 + String(id).length * 97 + String(id).charCodeAt(0); c = blockCanvas(id as BlockType); }

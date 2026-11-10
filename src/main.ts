@@ -1,7 +1,7 @@
 import './style.css';
 import {
-  BAL, ELEMENTS, ELEMENT_INFO, ENDLESS_LEVEL, LEVELS, ORE_ELEMENT, ORE_ICON, PERKS,
-  defaultMods, weaponElementMeta, type Element, type Mods,
+  BAL, ELEMENTS, ELEMENT_INFO, ENDLESS_LEVEL, HEROES, HERO_LIST, LEVELS, ORE_ELEMENT, ORE_ICON, PERKS,
+  defaultMods, weaponElementMeta, type Element, type HeroId, type Mods,
 } from './data/config';
 import { ELEMENT_WEAPONS, WEAPONS, WEAPON_LIST, type WeaponId } from './data/weapons';
 import { spriteUrl } from './gfx/pixel';
@@ -60,6 +60,37 @@ type State = 'title' | 'play' | 'ending' | 'perk' | 'result' | 'paused';
 type GameMode = 'campaign' | 'endless';
 let state: State = 'title';
 let gameMode: GameMode = 'campaign';
+let selectedHeroId: HeroId = 'bardin';
+
+function renderHeroSelect() {
+  const host = $('hero-select');
+  const detail = $('hero-detail');
+  if (!host || !detail) return;
+  host.replaceChildren(
+    ...HERO_LIST.map((h) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hero-card';
+      btn.setAttribute('role', 'radio');
+      btn.setAttribute('aria-checked', h.id === selectedHeroId ? 'true' : 'false');
+      btn.style.setProperty('--hero-color', h.css);
+      btn.innerHTML = `
+        <img src="${spriteUrl('hero', h.id)}" alt="">
+        <b>${h.name}</b>
+        <small>${h.title}</small>`;
+      btn.addEventListener('click', () => {
+        selectedHeroId = h.id;
+        renderHeroSelect();
+      });
+      return btn;
+    }),
+  );
+  const cur = HEROES[selectedHeroId];
+  detail.innerHTML = `
+    <div><b style="color:${cur.css}">${cur.name}（${cur.title}）</b>｜移速倍率 <b>${Math.round(cur.moveSpeed * 100)}%</b>｜接球寬度 <b>${cur.catchWidth}</b> 格</div>
+    <div>✨ 英雄專精：${cur.specialtyDesc}</div>
+    <div>🏓 接球特技<b>【${cur.volleyName}】</b>：${cur.volleyDesc}</div>`;
+}
 
 const run = {
   level: 0,
@@ -119,8 +150,9 @@ $('od-btn').addEventListener('click', () => {
   triggerOverdrive();
 });
 
-// ------------------------------------------------------------------ mine camera inspection (wheel + drag + lock)
+// ------------------------------------------------------------------ mine camera & Hero controls (A/D + pointer + wheel + drag + lock)
 (function bindMineCameraControls() {
+  const pane = $('mine-pane');
   const canvas = mineRenderer.renderer.domElement;
   canvas.style.touchAction = 'none';
   canvas.addEventListener('wheel', (ev) => {
@@ -131,16 +163,26 @@ $('od-btn').addEventListener('click', () => {
 
   let dragging = false;
   let lastY = 0;
+  const updateHeroPointerFromEvent = (ev: PointerEvent) => {
+    if (!mine) return;
+    const r = pane.getBoundingClientRect();
+    if (r.width <= 0) return;
+    const normX = (ev.clientX - r.left) / r.width;
+    mine.setHeroPointer(normX, true);
+  };
   canvas.addEventListener('pointerdown', (ev) => {
     if (!mine) return;
+    updateHeroPointerFromEvent(ev);
     dragging = true;
     lastY = ev.clientY;
     canvas.setPointerCapture(ev.pointerId);
   });
   canvas.addEventListener('pointermove', (ev) => {
-    if (!dragging || !mine) return;
+    if (!mine) return;
+    updateHeroPointerFromEvent(ev);
+    if (!dragging) return;
     const dy = ev.clientY - lastY;
-    if (Math.abs(dy) < 2) return;
+    if (Math.abs(dy) < 6) return;
     lastY = ev.clientY;
     const [, half] = mine.viewHalf();
     const blocksPerPx = (half * 2) / Math.max(100, canvas.clientHeight);
@@ -149,6 +191,35 @@ $('od-btn').addEventListener('click', () => {
   const endDrag = () => { dragging = false; };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+  pane.addEventListener('pointerleave', () => {
+    mine?.setHeroPointer(0.5, false);
+  });
+
+  // Keyboard A/D or Left/Right arrow keys for Hero Battle-Line movement
+  const keysHeld = { left: false, right: false };
+  const syncHeroKeyDir = () => {
+    const dir = (keysHeld.right ? 1 : 0) - (keysHeld.left ? 1 : 0);
+    mine?.setHeroInputDir(dir);
+  };
+  window.addEventListener('keydown', (ev) => {
+    if (state !== 'play') return;
+    if (ev.code === 'KeyA' || ev.code === 'ArrowLeft') {
+      keysHeld.left = true;
+      syncHeroKeyDir();
+    } else if (ev.code === 'KeyD' || ev.code === 'ArrowRight') {
+      keysHeld.right = true;
+      syncHeroKeyDir();
+    }
+  });
+  window.addEventListener('keyup', (ev) => {
+    if (ev.code === 'KeyA' || ev.code === 'ArrowLeft') {
+      keysHeld.left = false;
+      syncHeroKeyDir();
+    } else if (ev.code === 'KeyD' || ev.code === 'ArrowRight') {
+      keysHeld.right = false;
+      syncHeroKeyDir();
+    }
+  });
 
   $('cam-reset-btn').addEventListener('click', () => {
     mine?.resetCameraFollow();
@@ -177,7 +248,7 @@ function startRun(mode: GameMode = gameMode) {
   const startLv = run.mods.resonanceStartLv;
   resonance = { earth: startLv, thunder: startLv, poison: startLv, fire: startLv, ice: startLv };
   cumGauge = { earth: 0, thunder: 0, poison: 0, fire: 0, ice: 0 };
-  forge.resetForNewRun(run.mods);
+  forge.resetForNewRun(run.mods, selectedHeroId);
 
   if (mode === 'endless') startEndless();
   else startLevel(0, true);
@@ -230,7 +301,7 @@ function startLevel(i: number, isNewRun = false) {
   pendingEndlessPerk = null;
   resetOverdriveState();
 
-  mine = new Mine(levelDef(i), run.mods, resonance, wireMineCallbacks(false));
+  mine = new Mine(levelDef(i), run.mods, resonance, wireMineCallbacks(false), selectedHeroId);
   forge.onStageStart(i);
   forge.enabled = true;
   $('level-name').textContent = LEVELS[i].name;
@@ -252,7 +323,7 @@ function startEndless() {
   pendingEndlessPerk = null;
   resetOverdriveState();
 
-  mine = new Mine(ENDLESS_LEVEL, run.mods, resonance, wireMineCallbacks(true));
+  mine = new Mine(ENDLESS_LEVEL, run.mods, resonance, wireMineCallbacks(true), selectedHeroId);
   forge.onStageStart(0);
   forge.enabled = true;
   $('level-name').textContent = ENDLESS_LEVEL.name;
@@ -599,7 +670,17 @@ function updateHud(dt: number) {
     odBtn.textContent = `🔥 全彈超載 (+${bonusPct}%)`;
   }
 
-  // Topbar & depth
+  // Topbar, Hero Volley HUD & depth
+  const hero = HEROES[mine.heroId];
+  const volleyPct = mine.catchStreak > 0
+    ? Math.round((BAL.volleyBaseDmgBonus + Math.min(BAL.volleyMaxStacks - 1, mine.catchStreak - 1) * BAL.volleyStackDmgBonus) * 100)
+    : 0;
+  $('hero-hud').innerHTML = `
+    <img src="${spriteUrl('hero', hero.id)}" alt="">
+    <b style="color:${hero.css}">${hero.name}</b>
+    <span class="volley-combo">🏓 接球 ${mine.totalCatches}${mine.catchStreak > 0 ? `（連段 ×${mine.catchStreak}｜+${volleyPct}%）` : ''}</span>
+    <span class="hero-hint">A/D 或滑鼠移入接球</span>`;
+
   const timer = $('timer');
   if (mine.isEndless) {
     timer.textContent = `♾️ ${mine.depthRows}m`;
@@ -713,7 +794,10 @@ function updateHud(dt: number) {
     btn.setAttribute('aria-pressed', isLocked ? 'true' : 'false');
     (btn.querySelector('.lock-ico') as HTMLElement).textContent = isLocked ? '🎯' : '';
     const dupEl = btn.querySelector('.dup') as HTMLElement;
-    dupEl.textContent = w.star > 1 ? `${'★'.repeat(w.star)}` : w.dupStacks > 0 ? `+${w.dupStacks}` : '';
+    const volleyActive = w.volleyStacks > 0 && mine.time < w.volleyUntil;
+    dupEl.textContent = volleyActive
+      ? `🏓×${w.volleyStacks}`
+      : w.star > 1 ? `${'★'.repeat(w.star)}` : w.dupStacks > 0 ? `+${w.dupStacks}` : '';
     const [hp, ult] = btn.querySelectorAll('i');
     const f = Math.max(0, w.hp / w.maxHp);
     (hp as HTMLElement).style.width = `${f * 100}%`;
@@ -755,9 +839,10 @@ function frame(now: number) {
 // ------------------------------------------------------------------ boot
 initWiki(dlgWiki);
 renderBestRecords();
+renderHeroSelect();
 renderReso();
 // show an idle preview mine behind the title screen
-mine = new Mine(LEVELS[0], run.mods, resonance, { onEnd: () => {}, onResource: () => {} });
+mine = new Mine(LEVELS[0], run.mods, resonance, { onEnd: () => {}, onResource: () => {} }, selectedHeroId);
 $('level-name').textContent = 'Falling Weapons';
 dlgTitle.showModal();
 requestAnimationFrame(frame);
@@ -767,6 +852,17 @@ Object.assign(window, {
   fw: {
     get forge() { return forge; },
     get mine() { return mine; },
+    get selectedHeroId() { return selectedHeroId; },
+    selectHero: (id: HeroId) => {
+      selectedHeroId = id;
+      renderHeroSelect();
+    },
+    catchWeapon: (idx = 0) => {
+      if (!mine || !mine.weapons[idx]) return false;
+      mine.triggerHeroCatch(mine.weapons[idx]);
+      hudT = 0;
+      return true;
+    },
     spawn: (id: WeaponId, power = 1, force = false, meta: WeaponSpawnMeta = {}) => acquire(id, power, 'debug', force, meta),
     all25: () => WEAPON_LIST.forEach((w, idx) => setTimeout(() => acquire(w.id, 1, 'debug', true), idx * 120)),
     overdrive: () => { overdriveCooldown = 0; triggerOverdrive(); },

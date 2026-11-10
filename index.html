@@ -16,8 +16,8 @@
       </div>
 
       <div class="forge-bar">
-        <span id="bag-gold" class="bag-gold">💰 75G</span>
-        <button id="bag-expand-btn" class="bag-btn expand free-token" type="button">🎒 免費擴格 (1)</button>
+        <span id="bag-gold" class="bag-gold">💰 38G</span>
+        <button id="bag-expand-btn" class="bag-btn expand" type="button">🔓 擴格 (45G)</button>
         <button id="od-btn" class="od-btn" type="button" title="立即讓背包內所有武器齊射一輪，並進入 6.5 秒狂暴加速">🔥 全彈超載</button>
       </div>
 
@@ -40,7 +40,7 @@
         <div class="section-hdr">
           <span>🏪 矮人鍛造商店（右邊挖礦殺怪即時掉金幣）</span>
           <div class="shop-actions">
-            <button id="shop-refresh-btn" class="bag-btn small" type="button">🔄 刷新 (5G)</button>
+            <button id="shop-refresh-btn" class="bag-btn small" type="button">🔄 刷新 (8G)</button>
             <button id="shop-lock-btn" class="bag-btn small" type="button" aria-pressed="false">🔓 鎖定</button>
           </div>
         </div>
@@ -58,6 +58,7 @@
           <span id="level-name" class="level-name"></span>
           <span id="timer" class="timer">0:00</span>
         </div>
+        <div id="hero-hud" class="meter-row hero-row"></div>
         <div class="meter-row">
           <span class="meter-label">深度</span>
           <div class="meter"><div id="depth-fill" class="meter-fill depth"></div></div>
@@ -86,21 +87,28 @@
 
   <dialog id="dlg-title" aria-labelledby="title-h" closedby="none">
     <h1 id="title-h" class="logo">Falling Weapons</h1>
-    <p class="subtitle">背包亂鬥 × 靠裝勇者 × 落下武器・10 關首領闖關 ＆ 無盡深淵</p>
+    <p class="subtitle">BALL x PIT 英雄接球回擊 × 背包亂鬥 × 靠裝勇者・硬核 10 關 ＆ 無盡深淵</p>
     <div id="best-records" class="best-records"></div>
+
+    <div class="hero-select-section">
+      <div class="hero-select-title">🦸 選擇出戰英雄（每位英雄擁有專屬擅長武器、起手背包與【接球回擊特技】）</div>
+      <div id="hero-select" class="hero-cards" role="radiogroup" aria-label="選擇英雄"></div>
+      <div id="hero-detail" class="hero-detail" aria-live="polite"></div>
+    </div>
+
     <ul class="howto">
-      <li><b>🎒 7×7 鍛造背包自動產線 ＋ 拖曳精準空投</b>：擺進背包網格的武器會依各自的<b>鍛造冷卻條（3.4s ~ 7.2s）</b>源源不絕自動投射實體武器入坑！你也能<b>直接把武器、炸彈或甘露藥水拖到右邊礦坑指定直列</b>（或點<b>「🚀 緊急空投」</b>），發動 <b>1.35× 超載精準空投</b>！</li>
-      <li><b>✨ 雙軌合成 × 鄰接遺物陣型</b>：兩把同款<b>低階➔初階➔高階</b>二合一升階，或同款升星（<b>★1 ➔ ★2 ➔ ★3</b>）；把<b>五元素魔晶／👑王者聖印</b>拖到武器上直接跨階覺醒<b>傳說武器與✨聖劍</b>！搭配<b>磨刀石、發條齒輪、雙子鏡像稜鏡</b>的鄰接光環打造神裝產線！</li>
-      <li><b>💰 挖礦殺怪即時經濟 ＆ 全彈超載</b>：右側礦坑敲碎礦石、擊殺<b>👑 金冠菁英</b>與<b>三大首領</b>即時掉金幣與免費擴格券；點擊<b>「🔥 全彈超載」</b>讓背包全武器瞬間齊射並進入狂暴加速，從容欣賞右側彈雨！</li>
+      <li><b>🏓 右側礦坑《BALL x PIT》英雄投擲 ＆ 接球回擊（Volley）</b>：英雄站在礦坑上方戰線向下投擲武器；當武器撞擊方塊與怪物<b>向上反彈</b>時，用 <b>A / D（或 ← / →）</b>或<b>滑鼠／手指在右側礦坑橫向移動英雄接住武器</b>，立即觸發 <b>5 秒【強擊回投 Buff】</b>（回復 <b>+22% HP</b>、傷害最高疊至 <b>+95%</b>、投速 <b>×1.25</b>，並釋放英雄專屬接球特技）！</li>
+      <li><b>⚖️ 25 把武器獨立【反彈力・投速・重量】5 大物理原型</b>：從<b>高彈速射（A+ 彈力）</b>、<b>弧線迴旋（自動返航）</b>、<b>貫穿噴射（連鑽 3 層噴射返航）</b>到<b>超重碎岩（接球扣殺 ×1.6 傷害）</b>，搭配左邊 <b>7×7 鍛造背包雙軌合成</b>與<b>鄰接遺物</b>打造最強產線！</li>
+      <li><b>💀 硬核經濟與高難度挑戰</b>：開局僅 <b>38G</b>、普通泥土不掉錢、<b>無免費擴格券</b>（擴格需花費 <b>45G 起遞增</b>）、全怪物與首領血量 <b>+60%</b>！唯有靠精準挖礦討伐與高頻率<b>接球回擊續航</b>才能突破深淵！</li>
     </ul>
     <div class="title-actions">
       <form method="dialog" class="title-mode-form">
         <button class="btn primary" value="campaign" autofocus>🏆 10 關闖關模式</button>
         <button class="btn endless" value="endless">♾️ 無盡深淵模式</button>
       </form>
-      <button id="title-wiki-btn" class="btn" type="button">📖 遊戲 Wiki（合成配方＆全圖鑑）</button>
+      <button id="title-wiki-btn" class="btn" type="button">📖 遊戲 Wiki（英雄＆合成＆全圖鑑）</button>
     </div>
-    <p class="credit">玩法靈感：<a href="https://github.com/vycdev/falling-pickaxe" target="_blank" rel="noopener">vycdev/falling-pickaxe</a> × Backpack Battles × 靠裝勇者</p>
+    <p class="credit">玩法靈感：<a href="https://store.steampowered.com/app/2062430/BALL_x_PIT/" target="_blank" rel="noopener">BALL x PIT</a> × <a href="https://github.com/vycdev/falling-pickaxe" target="_blank" rel="noopener">vycdev/falling-pickaxe</a> × Backpack Battles × 靠裝勇者</p>
   </dialog>
 
   <dialog id="dlg-perk" aria-labelledby="perk-h" closedby="none">

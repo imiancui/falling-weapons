@@ -35,16 +35,143 @@ export function weaponElementMeta(el: WeaponElement): { name: string; color: num
   return el === 'holy' ? HOLY_INFO : ELEMENT_INFO[el];
 }
 
+export type HeroId = 'bardin' | 'kael' | 'vera' | 'ignis' | 'iris';
+
+export interface HeroStarterItem {
+  id: string;
+  location: 'bag' | 'storage';
+  row: number;
+  col: number;
+  slot: number;
+}
+
+export interface HeroDef {
+  id: HeroId;
+  name: string;
+  title: string;
+  element: WeaponElement;
+  css: string;
+  color: number;
+  moveSpeed: number; // multiplier on hero horizontal move speed
+  catchWidth: number; // catch radius in block units
+  specialtyDesc: string;
+  volleyName: string;
+  volleyDesc: string;
+  starterItems: HeroStarterItem[];
+}
+
+export const HEROES: Record<HeroId, HeroDef> = {
+  bardin: {
+    id: 'bardin',
+    name: '矮人鐵匠・巴林',
+    title: '⛏️ 土屬＆重武破甲流',
+    element: 'earth',
+    css: '#e8a858',
+    color: 0xe8a858,
+    moveSpeed: 1.0,
+    catchWidth: 1.45,
+    specialtyDesc: '土屬與 2×2 重型／傳說武器傷害 +30%，對礦石與首領護盾破甲效率 +25%',
+    volleyName: '震地重擊',
+    volleyDesc: '接住反彈武器重投時，下次撞擊額外引爆 2.6 格震地波（60% 範圍傷）並對首領護盾造成 2 倍破盾！',
+    starterItems: [
+      { id: 'axe', location: 'bag', row: 2, col: 2, slot: -1 },
+      { id: 'pick', location: 'bag', row: 2, col: 4, slot: -1 },
+      { id: 'whetstone', location: 'bag', row: 2, col: 1, slot: -1 },
+      { id: 'mine_bomb', location: 'storage', row: -1, col: -1, slot: 0 },
+    ],
+  },
+  kael: {
+    id: 'kael',
+    name: '雷霆劍聖・凱爾',
+    title: '⚡ 雷屬＆超彈疾速流',
+    element: 'thunder',
+    css: '#ffe252',
+    color: 0xffe252,
+    moveSpeed: 1.25,
+    catchWidth: 1.75,
+    specialtyDesc: '英雄移速 +25%、接球寬度 +20%；雷屬與彈珠型武器飛行及反彈速度 +25%',
+    volleyName: '雷閃連擊',
+    volleyDesc: '接球瞬間直接對下方最近 3 名敵人劈下 120% 連鎖閃電，且該武器 5 秒內碰撞間隔減半！',
+    starterItems: [
+      { id: 'blade', location: 'bag', row: 2, col: 2, slot: -1 },
+      { id: 'baton', location: 'bag', row: 2, col: 4, slot: -1 },
+      { id: 'gear', location: 'bag', row: 2, col: 1, slot: -1 },
+      { id: 'mine_bomb', location: 'storage', row: -1, col: -1, slot: 0 },
+    ],
+  },
+  vera: {
+    id: 'vera',
+    name: '暗影刺客・薇拉',
+    title: '☠️ 毒屬＆爆擊迴旋流',
+    element: 'poison',
+    css: '#7aff58',
+    color: 0x7aff58,
+    moveSpeed: 1.15,
+    catchWidth: 1.5,
+    specialtyDesc: '毒屬與爆擊／迴旋型武器爆擊率 +25%、爆擊傷害 +35%',
+    volleyName: '致命塗毒',
+    volleyDesc: '接球重投後 5 秒內每次碰撞 100% 必定爆擊且劇毒層數 ×2；每接球 3 次額外射出 1 把劇毒飛針！',
+    starterItems: [
+      { id: 'dagger', location: 'bag', row: 2, col: 2, slot: -1 },
+      { id: 'needle', location: 'bag', row: 2, col: 4, slot: -1 },
+      { id: 'whetstone', location: 'bag', row: 2, col: 1, slot: -1 },
+      { id: 'mine_bomb', location: 'storage', row: -1, col: -1, slot: 0 },
+    ],
+  },
+  ignis: {
+    id: 'ignis',
+    name: '烈焰狂戰・伊格',
+    title: '🔥 火屬＆範圍爆破流',
+    element: 'fire',
+    css: '#ff6438',
+    color: 0xff6438,
+    moveSpeed: 1.05,
+    catchWidth: 1.45,
+    specialtyDesc: '火屬與刀劍／爆破型武器傷害 +35%，燃燒地面持續時間與蔓延率 +30%',
+    volleyName: '烈焰流星',
+    volleyDesc: '接球重投後武器化為火流星，飛行沿途灑落火苗並在首次撞擊時引爆 2.4 格烈焰火柱（150% 火傷）！',
+    starterItems: [
+      { id: 'sword', location: 'bag', row: 2, col: 2, slot: -1 },
+      { id: 'torch', location: 'bag', row: 2, col: 4, slot: -1 },
+      { id: 'whetstone', location: 'bag', row: 2, col: 1, slot: -1 },
+      { id: 'mine_bomb', location: 'storage', row: -1, col: -1, slot: 0 },
+    ],
+  },
+  iris: {
+    id: 'iris',
+    name: '極光聖女・艾莉絲',
+    title: '❄️ 冰屬＆神聖續航流',
+    element: 'ice',
+    css: '#7ee8ff',
+    color: 0x7ee8ff,
+    moveSpeed: 1.1,
+    catchWidth: 1.6,
+    specialtyDesc: '冰屬與神聖武器挖礦耐久耗損 -30%，✨ 聖劍自然流失壽命速度減緩 -35%',
+    volleyName: '極光祝禱',
+    volleyDesc: '接球瞬間為場上全體武器回復 12% HP（含聖劍），並使該武器 5 秒內附帶極寒冰蝕（目標受傷 +50%）！',
+    starterItems: [
+      { id: 'spear', location: 'bag', row: 2, col: 2, slot: -1 },
+      { id: 'icicle', location: 'bag', row: 2, col: 4, slot: -1 },
+      { id: 'plate', location: 'bag', row: 2, col: 1, slot: -1 },
+      { id: 'heal_potion', location: 'storage', row: -1, col: -1, slot: 0 },
+    ],
+  },
+};
+
+export const HERO_LIST: HeroDef[] = [HEROES.bardin, HEROES.kael, HEROES.vera, HEROES.ignis, HEROES.iris];
+
 export const BAL = {
-  // ---- backpack forge & shop economy (v0.5) ----
+  // ---- backpack forge & hardcore shop economy (v0.6) ----
   bagGridSize: 7, // 7x7 master grid (center 5x5 = 25 cells unlocked at start, outer 24 expandable)
   bagStartUnlocked: 25,
   storageSlots: 6,
   shopSlots: 5,
-  startGold: 75, // 開局初始金幣（足夠買 2~3 把初始武器＋配件）
-  passiveGoldPerSec: 1.4, // 每秒基礎鍛造津貼（防卡手保底）
-  shopRefreshCost: 5, // 基礎刷新商店費用
-  expandSlotBaseCost: 22, // 擴充 1 格背包基礎金幣（每擴 1 格 +3G，或使用菁英掉落的擴格券免費開格！）
+  startGold: 38, // 極限硬核開局金幣（僅夠買 1~2 件基礎道具，需靠挖礦脈與殺怪賺錢）
+  passiveGoldPerSec: 0.35, // 每秒微幅鍛造津貼（防完全卡死）
+  shopRefreshCost: 8, // 基礎刷新商店費用（同關每次刷新 +2G）
+  shopRefreshCostStep: 2,
+  expandSlotBaseCost: 45, // 擴充第 1 格背包費用 45G（完全無免費擴格券！）
+  expandSlotCostStep: 18, // 每擴充 1 格費用大幅遞增 +18G（45 -> 63 -> 81 -> 99 -> 117...）
   sellRefundRatio: 0.65, // 出售道具退還 65% 價值
   airDropPowerMul: 1.35, // 手動拖曳武器至右側礦坑緊急空投：該把傷害與 HP ×1.35！
   star2Mul: 1.65, // ★2 武器傷害與 HP 倍率
@@ -57,6 +184,19 @@ export const BAL = {
   overdriveUltRateMul: 1.8, // 狂暴期間大招冷卻與集氣速度 ×1.8
   overdriveBaseDmgBonus: 0.35, // 狂暴基礎增傷 +35%
   overdriveStackDmgBonus: 0.10,
+
+  // ---- BALL x PIT Hero Catch & Volley system + Hardcore scaling (v0.6) ----
+  heroLineGapRows: 6.5, // 英雄戰線距離最深挖掘面的上方格數
+  volleyBuffSec: 5.0, // 英雄接球再投出 Buff 持續秒數
+  volleyBaseDmgBonus: 0.35, // 接球第 1 層增傷 +35%
+  volleyStackDmgBonus: 0.15, // 連續接球每多 1 層額外 +15%（最高 5 層 = +95%！）
+  volleyMaxStacks: 5,
+  volleySpeedMul: 1.25, // 接球重投飛行速度 ×1.25
+  volleyHealPct: 0.22, // 接球回復武器 22% 最大 HP（聖劍為 18%）
+  heavyVolleyDmgMul: 1.60, // 重磅破城型武器被英雄接住重投時，額外獲得 ×1.60 重磅動能傷害！
+  missCeilingWearPct: 0.08, // 漏接撞擊戰線頂部岩壁扣除 8% 最大 HP 並清空連段
+  enemyHpHardcoreMul: 1.60, // 怪物與三大首領血量全面 +60%！
+  blockHpHardcoreMul: 1.30, // 礦層方塊硬度全面 +30%！
 
   // ---- legacy / resonance thresholds ----
   staminaMax: 7,
@@ -168,25 +308,25 @@ export const ORE_ICON: Record<string, string> = {
   coal: '⚫', iron: '⚪', copper: '🟠', gold: '🟡', redstone: '🔴', lapis: '🔵', diamond: '💎', emerald: '🟢',
 };
 
-/** Gold awarded when a block is destroyed in the mine. */
+/** Gold awarded when a block is destroyed in the mine (v0.6 Hardcore: dirt drops 0G; stone/deepslate only drop via low probability in destroyBlock). */
 export const BLOCK_GOLD: Record<BlockType, number> = {
-  dirt: 1,
-  stone: 1,
-  deepslate: 2,
-  obsidian: 5,
+  dirt: 0,
+  stone: 0,
+  deepslate: 0,
+  obsidian: 4,
   bedrock: 0,
   seal: 0,
-  core: 40,
-  barrel: 4,
-  crystal: 14,
-  coal: 4,
-  copper: 5,
-  iron: 6,
-  gold: 10,
-  redstone: 9,
-  lapis: 9,
-  diamond: 16,
-  emerald: 18,
+  core: 35,
+  barrel: 3,
+  crystal: 12,
+  coal: 3,
+  copper: 4,
+  iron: 5,
+  gold: 9,
+  redstone: 8,
+  lapis: 8,
+  diamond: 14,
+  emerald: 16,
 };
 
 /** Element Resonance XP granted when an ore is mined. */
@@ -314,12 +454,12 @@ export const PERKS: PerkDef[] = [
     apply: (m) => { m.forgeCdMul *= 0.82; m.overdriveDmgBonus += 0.25; },
   },
   {
-    id: 'bag_expand', name: '次元背包術', desc: '立即獲得 4 張免費背包擴格券，且背包內所有鄰接遺物加成效果 +25%', icon: '🎒', max: 3,
-    apply: (m) => { m.pendingExpandTokens += 4; m.relicEffectMul += 0.25; },
+    id: 'bag_expand', name: '次元背包術', desc: '立即免費解鎖 2 格背包空間，且背包內所有鄰接遺物加成效果 +25%', icon: '🎒', max: 3,
+    apply: (m) => { m.pendingExpandTokens += 2; m.relicEffectMul += 0.25; },
   },
   {
-    id: 'greed_pick', name: '黃金礦工', desc: '挖礦與討伐怪物金幣收益 +35%，並立即獲得 +65 金幣與 1 張擴格券', icon: '💰', max: 3,
-    apply: (m) => { m.goldGainMul += 0.35; m.pendingGoldBonus += 65; m.pendingExpandTokens += 1; },
+    id: 'greed_pick', name: '黃金礦工', desc: '挖礦與討伐怪物金幣收益 +35%，並立即獲得 +45 金幣', icon: '💰', max: 3,
+    apply: (m) => { m.goldGainMul += 0.35; m.pendingGoldBonus += 45; },
   },
   { id: 'dmg', name: '鍛造大師', desc: '所有武器傷害 +22%', icon: '⚔️', apply: (m) => { m.dmgMul += 0.22; } },
   { id: 'hp', name: '強韌鋼材', desc: '武器最大 HP +25%', icon: '🛡️', apply: (m) => { m.hpMul += 0.25; } },

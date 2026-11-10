@@ -48,6 +48,18 @@ export class Weapon {
   dead = false;
   readonly scale: number;
 
+  // v0.6 BALL x PIT Catch & Volley state
+  volleyStacks = 0;
+  volleyUntil = 0;
+  hitsSinceThrow = 0;
+  returningToHero = false;
+  heavyVolleyReady = false;
+  bardinShockReady = false;
+  veraCritUntil = 0;
+  ignisMeteorReady = false;
+  irisFrostUntil = 0;
+  lastCatchTime = -10;
+
   constructor(public m: Mine, id: WeaponId, public power: number, x: number, y: number, meta?: WeaponSpawnMeta) {
     this.def = WEAPONS[id];
     this.hpBonusMul = meta?.hpBonusMul ?? 1;
@@ -60,8 +72,8 @@ export class Weapon {
     if (id === 'core_orb') {
       this.body = Matter.Bodies.circle(x, y, 18 * s, {
         friction: 0.1,
-        restitution: 0.75,
-        frictionAir: 0.02,
+        restitution: this.def.restitution,
+        frictionAir: 0.015,
         collisionFilter: { group: -1 },
         label: 'weapon',
       });
@@ -74,9 +86,9 @@ export class Weapon {
       const head = Matter.Bodies.rectangle(Math.SQRT1_2 * hd, -Math.SQRT1_2 * hd, 30 * s, 14 * s, { angle: Math.PI / 4 });
       this.body = Matter.Body.create({
         parts: [shaft, head],
-        friction: id === 'drill' ? 0.08 : 0.25,
-        restitution: id === 'spear' || id === 'drill' ? 0.04 : id === 'katar' ? 0.58 : 0.45,
-        frictionAir: 0.004,
+        friction: id === 'drill' ? 0.08 : 0.2,
+        restitution: this.def.restitution,
+        frictionAir: 0.003,
         collisionFilter: { group: -1 },
         label: 'weapon',
       });
@@ -85,8 +97,8 @@ export class Weapon {
     }
     this.body.plugin = { kind: 'weapon', w: this };
     Matter.Body.setAngle(this.body, Math.random() * Math.PI * 2);
-    Matter.Body.setAngularVelocity(this.body, (Math.random() - 0.5) * 0.3);
-    Matter.Body.setVelocity(this.body, { x: (Math.random() - 0.5) * 2, y: 1 });
+    Matter.Body.setAngularVelocity(this.body, (Math.random() - 0.5) * 0.35);
+    this.throwFromHero(x + (Math.random() - 0.5) * m.B * 1.6, y + m.B * 5, false);
 
     const tex = Tex.weapon(id);
     const elMeta = weaponElementMeta(this.def.element);
@@ -128,11 +140,41 @@ export class Weapon {
     const extraReso = Math.max(0, this.reso - BAL.resonanceMaxLv);
     const endlessMul = 1 + extraReso * BAL.endlessResoExtraBonus;
     const odMul = this.m.overdriveActive ? this.m.overdriveDmgMul : 1;
-    return this.def.dmg * this.power * this.dupMul * this.m.mods.dmgMul * endlessMul * odMul;
+    const volleyActive = this.volleyStacks > 0 && this.m.time < this.volleyUntil;
+    const volleyMul = volleyActive
+      ? 1 + BAL.volleyBaseDmgBonus + Math.min(BAL.volleyMaxStacks - 1, this.volleyStacks - 1) * BAL.volleyStackDmgBonus
+      : 1;
+    const heavyMul = this.heavyVolleyReady ? BAL.heavyVolleyDmgMul : 1;
+    return this.def.dmg * this.power * this.dupMul * this.m.mods.dmgMul * endlessMul * odMul * volleyMul * heavyMul;
   }
   get hitInterval() {
     const base = this.def.id === 'drill' || this.def.id === 'katar' ? BAL.hitCooldown * 0.5 : BAL.hitCooldown;
-    return this.m.overdriveActive ? base * BAL.overdriveHitCdMul : base;
+    const od = this.m.overdriveActive ? base * BAL.overdriveHitCdMul : base;
+    const kaelVolley = this.m.heroId === 'kael' && this.m.time < this.volleyUntil ? 0.5 : 1.0;
+    return od * kaelVolley;
+  }
+
+  /** Launches or volleys this weapon downward from the Hero toward (aimX, aimY) with its custom throwSpeed. */
+  throwFromHero(aimX: number, aimY: number, isVolley: boolean) {
+    this.hitsSinceThrow = 0;
+    this.returningToHero = false;
+    const m = this.m;
+    if (isVolley) {
+      const spawnX = Math.max(m.B * 1.2, Math.min((m.cols - 1.2) * m.B, m.heroX));
+      const spawnY = m.heroY + m.B * 0.65;
+      Matter.Body.setPosition(this.body, { x: spawnX, y: spawnY });
+    }
+    const dx = aimX - this.x;
+    const dy = Math.max(m.B * 2.5, aimY - this.y);
+    const dist = Math.hypot(dx, dy) || 1;
+    const kaelSpdMul = m.heroId === 'kael' && (this.def.element === 'thunder' || this.def.archetype === 'pinball') ? 1.25 : 1.0;
+    const volleyMul = isVolley ? BAL.volleySpeedMul : 1.0;
+    const spd = this.def.throwSpeed * 0.52 * kaelSpdMul * volleyMul;
+    Matter.Body.setVelocity(this.body, {
+      x: Math.max(-8.5, Math.min(8.5, (dx / dist) * spd)),
+      y: Math.max(4.2, (dy / dist) * spd),
+    });
+    Matter.Body.setAngularVelocity(this.body, (Math.random() < 0.5 ? -1 : 1) * (isVolley ? 0.48 : 0.32));
   }
   get reso(): number {
     if (this.def.element === 'holy') {
@@ -186,23 +228,42 @@ export class Weapon {
     this.hitCd -= dt;
     this.icd -= dt * odRate;
 
-    // Lifespan decay for Excalibur (ignores invulnerability as it's its natural timer, hearts still heal it)
+    // Lifespan decay for Excalibur (Iris reduces Holy lifespan decay by 35%)
     if (this.def.lifespanDecay) {
-      this.hp -= this.maxHp * BAL.holyDecayPct * dt;
+      const decayMul = m.heroId === 'iris' ? 0.65 : 1.0;
+      this.hp -= this.maxHp * BAL.holyDecayPct * decayMul * dt;
     }
 
     const b = this.body;
-    // Magnetic orb floats gently downward
-    if (this.def.id === 'core_orb') {
+    // Apply per-weapon gravityScale & returningToHero upward trajectory (BALL x PIT physics!)
+    if (this.returningToHero) {
+      const dx = m.heroX - this.x;
+      const targetVx = Math.max(-7.5, Math.min(7.5, (dx / m.B) * 2.3));
+      const upVy = -Math.max(6.8, this.def.throwSpeed * 0.48);
       Matter.Body.setVelocity(b, {
-        x: Math.max(-3.5, Math.min(3.5, b.velocity.x)),
-        y: Math.min(m.time < this.webbedUntil ? 0.8 : 2.1, b.velocity.y),
+        x: b.velocity.x * 0.75 + targetVx * 0.25,
+        y: upVy,
       });
-      Matter.Body.setAngularVelocity(b, 0.06);
+    } else if (this.def.id === 'core_orb') {
+      Matter.Body.setVelocity(b, {
+        x: Math.max(-4.5, Math.min(4.5, b.velocity.x)),
+        y: Math.min(m.time < this.webbedUntil ? 0.8 : 2.6, b.velocity.y),
+      });
+      Matter.Body.setAngularVelocity(b, 0.08);
     } else {
-      const maxFall = m.time < this.webbedUntil ? 1.2 : BAL.maxFall;
-      if (b.velocity.y > maxFall || Math.abs(b.velocity.x) > 7) {
-        Matter.Body.setVelocity(b, { x: Math.max(-7, Math.min(7, b.velocity.x)), y: Math.min(maxFall, b.velocity.y) });
+      const extraG = (this.def.gravityScale - 1.0) * 6.5 * dt;
+      if (Math.abs(extraG) > 0.0001) {
+        Matter.Body.setVelocity(b, { x: b.velocity.x, y: b.velocity.y + extraG });
+      }
+      const volleySpdBoost = m.time < this.volleyUntil ? 1.25 : 1.0;
+      const maxFall = m.time < this.webbedUntil
+        ? 1.2
+        : BAL.maxFall * Math.max(1, this.def.gravityScale * 1.12) * volleySpdBoost;
+      if (b.velocity.y > maxFall || b.velocity.y < -13.5 || Math.abs(b.velocity.x) > 9.5) {
+        Matter.Body.setVelocity(b, {
+          x: Math.max(-9.5, Math.min(9.5, b.velocity.x)),
+          y: Math.max(-13.5, Math.min(maxFall, b.velocity.y)),
+        });
       }
     }
     if (m.time < this.webbedUntil) Matter.Body.setAngularVelocity(b, b.angularVelocity * 0.9);
@@ -242,7 +303,7 @@ export class Weapon {
     const cx = b.position.x + this.offset.x * cos - this.offset.y * sin;
     const cy = b.position.y + this.offset.x * sin + this.offset.y * cos;
     const p = m.to3(cx, cy);
-    if (m.overdriveActive && Math.random() < dt * 8) {
+    if ((m.overdriveActive || m.time < this.volleyUntil) && Math.random() < dt * 9) {
       m.emitOverdriveSpark(p.x, p.y);
     }
     this.group.position.x = p.x;
@@ -289,15 +350,44 @@ function axeRadius(m: Mine, w: Weapon): number {
 function poisonTarget(m: Mine, w: Weapon, t: Target, stacks: number, plague: boolean, maxStacks = 5, venom = false) {
   const dur = 4 + RESONANCE.poisonDurAdd(w.reso);
   const dps = w.dmg * 0.4;
-  if (t.kind === 'block') m.poisonCell(t.r, t.c, dps * stacks, dur, plague, venom);
-  else m.poisonEnemy(t.e, dps, dur, stacks, plague, maxStacks, venom);
+  const effStacks = m.time < w.veraCritUntil ? stacks * 2 : stacks;
+  if (t.kind === 'block') m.poisonCell(t.r, t.c, dps * effStacks, dur, plague, venom);
+  else m.poisonEnemy(t.e, dps, dur, effStacks, plague, maxStacks, venom);
 }
 
 export function onHit(m: Mine, w: Weapon, t: Target) {
+  w.hitsSinceThrow++;
   const d = w.dmg;
   const chg = (m.overdriveActive ? BAL.overdriveUltRateMul : 1) * w.ultRateMul;
   const [tr, tc] = targetCell(m, t);
   const p = m.to3(...m.center(tr, tc));
+
+  // Heavy Volley Slam bonus consumed on first hit after catch
+  if (w.heavyVolleyReady) {
+    w.heavyVolleyReady = false;
+    m.fx.text(p.x, p.y + 0.65, '💥 重擊扣殺 ×1.6!', '#ffaa48', 0.85, 0.38);
+    m.fx.ring(p.x, p.y, 1.4, 0xffaa48, 0.35);
+  }
+  // Hero Bardin Volley Skill: Iron Shockwave on next hit
+  if (w.bardinShockReady) {
+    w.bardinShockReady = false;
+    m.explode(w.x, w.y, 2.5, d * 0.6, w.src('shock'));
+    m.fx.text(p.x, p.y + 0.7, '🛡️ 鍛鐵震波！', '#ffd060', 0.85, 0.38);
+  }
+  // Hero Ignis Volley Skill: Hellfire Meteor explosion on next hit
+  if (w.ignisMeteorReady) {
+    w.ignisMeteorReady = false;
+    m.explode(w.x, w.y, 2.5, d * 1.5, w.src('fire'));
+    const burnDps = d * 0.55 * RESONANCE.burnMul(w.reso);
+    for (let rr = tr - 2; rr <= tr + 2; rr++) for (let cc = tc - 2; cc <= tc + 2; cc++) m.burnCell(rr, cc, burnDps, 4);
+    for (const e of m.enemiesInRadius(w.x, w.y, 2.6 * m.B)) m.burnEnemy(e, burnDps, 4);
+    m.fx.text(p.x, p.y + 0.7, '🔥 獄炎隕落！', '#ff7838', 0.9, 0.4);
+  }
+  // Hero Iris Volley Skill: Frost Sanctuary freeze / frost vulnerability on hit
+  if (m.time < w.irisFrostUntil) {
+    if (t.kind === 'enemy') m.freezeEnemy(t.e, 1.5);
+    else m.frostCell(t.r, t.c, 4.0);
+  }
   switch (w.def.id) {
     // -------- A. 低階武器（消 3） --------
     case 'pick':
@@ -498,6 +588,62 @@ export function onHit(m: Mine, w: Weapon, t: Target) {
       break;
     }
   }
+
+  reboundTowardHero(m, w);
+}
+
+/** Imparts per-archetype BALL x PIT rebound trajectories back toward the Hero on the battle line. */
+function reboundTowardHero(m: Mine, w: Weapon) {
+  if (w.y <= m.heroY + m.B * 1.1) return;
+  const b = w.body;
+  const dxToHero = (m.heroX - w.x) / m.B;
+  const steerX = Math.max(-5.5, Math.min(5.5, dxToHero * 1.05 + (Math.random() - 0.5) * 3.0));
+  switch (w.def.archetype) {
+    case 'pinball': {
+      // High-elasticity instant upward bounce on every hit
+      const upVy = -Math.max(7.2, w.def.throwSpeed * 0.46);
+      Matter.Body.setVelocity(b, {
+        x: Math.max(-7.5, Math.min(7.5, steerX + (Math.random() - 0.5) * 2.8)),
+        y: upVy,
+      });
+      break;
+    }
+    case 'boomerang': {
+      // Curves smoothly back to the Hero after 2 hits (1 hit for Boomerang itself)
+      const needed = w.def.id === 'boomerang' ? 1 : 2;
+      if (w.hitsSinceThrow >= needed) {
+        w.returningToHero = true;
+        Matter.Body.setVelocity(b, { x: steerX, y: -Math.max(7.0, w.def.throwSpeed * 0.47) });
+      }
+      break;
+    }
+    case 'pierce': {
+      // Drills downward for 2 hits, then fires upward thruster on 3rd hit
+      if (w.hitsSinceThrow < 3) {
+        Matter.Body.setVelocity(b, { x: b.velocity.x * 0.7, y: Math.max(b.velocity.y, 3.6) });
+      } else {
+        w.returningToHero = true;
+        Matter.Body.setVelocity(b, { x: steerX, y: -8.2 });
+        const wp = m.to3(w.x, w.y);
+        m.fx.text(wp.x, wp.y + 0.45, '🚀 噴射返航', '#8ae8ff', 0.65, 0.3);
+      }
+      break;
+    }
+    case 'balanced': {
+      // Bounces upward after 2 hits
+      if (w.hitsSinceThrow >= 2) {
+        Matter.Body.setVelocity(b, { x: steerX, y: -Math.max(6.8, w.def.throwSpeed * 0.46) });
+      }
+      break;
+    }
+    case 'heavy': {
+      // Crushes 2 hits then rebounds upward so Hero can catch for ×1.60 Heavy Slam
+      if (w.hitsSinceThrow >= 2) {
+        Matter.Body.setVelocity(b, { x: steerX * 0.85, y: -Math.max(6.5, w.def.throwSpeed * 0.48) });
+      }
+      break;
+    }
+  }
 }
 
 function shockwave(m: Mine, w: Weapon, row: number, dmg: number) {
@@ -514,7 +660,7 @@ function shockwave(m: Mine, w: Weapon, row: number, dmg: number) {
   m.fx.shake = Math.max(m.fx.shake, 0.14);
 }
 
-function zap(m: Mine, w: Weapon, n: number, rangeBlocks: number, dmg: number) {
+export function zap(m: Mine, w: Weapon, n: number, rangeBlocks: number, dmg: number) {
   const from = m.to3(w.x, w.y);
   for (const t of m.randomTargets(w.x, w.y, rangeBlocks * m.B, n)) {
     const [tx, ty] = t.kind === 'block' ? m.center(t.r, t.c) : [t.e.x, t.e.y];
