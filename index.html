@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07050a" />
+  <title>Falling Weapons — 背包鍛造 × 落下武器</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>⛏</text></svg>" />
+  <script type="module" crossorigin src="./assets/index-DSuxfbB6.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-UKJIMaSq.css">
+</head>
+<body>
+  <main id="game">
+    <section id="board-pane" class="pane" aria-label="鍛造背包與矮人商店">
+      <div class="board-top">
+        <ul id="reso" class="reso-row" role="list" aria-label="元素共鳴進度"></ul>
+        <button id="help-btn" class="wiki-btn" type="button" aria-label="開啟遊戲 Wiki">📖 Wiki</button>
+      </div>
+
+      <div class="forge-bar">
+        <span id="bag-gold" class="bag-gold">💰 24G</span>
+        <button id="bag-expand-btn" class="bag-btn expand" type="button">🔓 擴格 (60G)</button>
+        <button id="od-btn" class="od-btn" type="button" title="立即讓背包內所有武器齊射一輪，並進入 6.5 秒狂暴加速">🔥 全彈超載</button>
+      </div>
+
+      <div class="forge-workspace">
+        <div class="bag-stage-wrap">
+          <div id="bag-grid" class="bag-grid" role="grid" aria-label="7x7 鍛造背包網格"></div>
+          <div id="bag-items-layer" class="bag-items-layer"></div>
+        </div>
+        <div id="bag-inspector" class="bag-inspector" aria-live="polite"></div>
+      </div>
+
+      <div class="storage-section">
+        <div class="section-hdr">
+          <span>📦 暫存欄（可拖曳至背包合成，或直接拖到右邊礦坑精準空投！）</span>
+        </div>
+        <div id="bag-storage" class="bag-storage"></div>
+      </div>
+
+      <div class="shop-section">
+        <div class="section-hdr">
+          <span>🏪 矮人鍛造商店（右邊挖礦殺怪即時掉金幣）</span>
+          <div class="shop-actions">
+            <button id="shop-refresh-btn" class="bag-btn small" type="button">🔄 刷新 (12G)</button>
+            <button id="shop-lock-btn" class="bag-btn small" type="button" aria-pressed="false">🔓 鎖定</button>
+          </div>
+        </div>
+        <div id="bag-shop" class="bag-shop"></div>
+      </div>
+
+      <div id="bag-live" class="visually-hidden" aria-live="polite"></div>
+    </section>
+
+    <section id="mine-pane" class="pane" aria-label="礦坑">
+      <div id="lava-heat" class="lava-heat" aria-hidden="true"></div>
+      <div id="toasts" class="toasts" aria-live="polite"></div>
+      <div class="hud mine-hud">
+        <div class="topbar">
+          <span id="level-name" class="level-name"></span>
+          <span id="timer" class="timer">0:00</span>
+        </div>
+        <div id="hero-hud" class="meter-row hero-row"></div>
+        <div class="meter-row">
+          <span class="meter-label">深度</span>
+          <div class="meter"><div id="depth-fill" class="meter-fill depth"></div></div>
+          <span id="depth-text" class="meter-text"></span>
+        </div>
+        <div class="meter-row">
+          <span class="meter-label">岩漿</span>
+          <span id="lava-text" class="meter-text lava"></span>
+          <span id="shield" class="shield" hidden>🛡 無敵</span>
+        </div>
+        <div id="gate-row" class="meter-row gate" hidden>
+          <span class="meter-label">結界</span>
+          <span id="gate-text" class="meter-text gate-text"></span>
+        </div>
+        <div id="boss-bar" class="meter-row boss" hidden>
+          <span id="boss-name" class="meter-label">首領</span>
+          <div class="meter"><div id="boss-fill" class="meter-fill bossfill"></div></div>
+          <span id="boss-shield" class="meter-text boss-shield" hidden></span>
+        </div>
+        <div id="res" class="res-row" aria-label="資源"></div>
+      </div>
+      <button id="cam-reset-btn" class="cam-reset-btn" type="button" hidden>🎯 回到自動跟隨</button>
+      <ul id="weapon-cards" class="cards" role="list" aria-label="場上武器（點擊可鎖定鏡頭跟隨）"></ul>
+    </section>
+  </main>
+
+  <dialog id="dlg-title" aria-labelledby="title-h" closedby="none">
+    <h1 id="title-h" class="logo">Falling Weapons</h1>
+    <p class="subtitle">BALL x PIT 英雄接球回擊 × 背包亂鬥 × 靠裝勇者・硬核 10 關 ＆ 無盡深淵</p>
+    <div id="best-records" class="best-records"></div>
+
+    <div class="hero-select-section">
+      <div class="hero-select-title">🦸 選擇出戰英雄（每位英雄擁有專屬擅長武器、起手背包與【接球回擊特技】）</div>
+      <div id="hero-select" class="hero-cards" role="radiogroup" aria-label="選擇英雄"></div>
+      <div id="hero-detail" class="hero-detail" aria-live="polite"></div>
+    </div>
+
+    <ul class="howto">
+      <li><b>🏓 右側礦坑《BALL x PIT》英雄投擲 ＆ 接球回擊（Volley）</b>：英雄站在礦坑上方戰線向下投擲武器；當武器撞擊方塊與怪物<b>向上反彈</b>時，用 <b>A / D（或 ← / →）</b>或<b>滑鼠／手指在右側礦坑橫向移動英雄接住武器</b>，立即觸發 <b>5 秒【強擊回投 Buff】</b>（回復 <b>+22% HP</b>、傷害最高疊至 <b>+95%</b>、投速 <b>×1.25</b>，並釋放英雄專屬接球特技）！</li>
+      <li><b>⚖️ 25 把武器獨立【反彈力・投速・重量】5 大物理原型</b>：從<b>高彈速射（A+ 彈力）</b>、<b>弧線迴旋（自動返航）</b>、<b>貫穿噴射（連鑽 3 層噴射返航）</b>到<b>超重碎岩（接球扣殺 ×1.6 傷害）</b>，搭配左邊 <b>7×7 鍛造背包雙軌合成</b>與<b>鄰接遺物</b>打造最強產線！</li>
+      <li><b>💀 地獄硬核經濟與高難度挑戰</b>：開局僅 <b>24G</b>、普通泥土不掉錢、商店裝備全面漲價、<b>無免費擴格券</b>（擴格需花費 <b>60G 起遞增</b>）、礦層地板硬度 <b>+85%</b>、全怪物與首領血量 <b>+135%</b>！唯有靠精準挖礦討伐與高頻率<b>接球回擊續航</b>才能突破深淵！</li>
+    </ul>
+    <div class="title-actions">
+      <form method="dialog" class="title-mode-form">
+        <button class="btn primary" value="campaign" autofocus>🏆 10 關闖關模式</button>
+        <button class="btn endless" value="endless">♾️ 無盡深淵模式</button>
+      </form>
+      <button id="title-wiki-btn" class="btn" type="button">📖 遊戲 Wiki（英雄＆合成＆全圖鑑）</button>
+    </div>
+    <p class="credit">玩法靈感：<a href="https://store.steampowered.com/app/2062430/BALL_x_PIT/" target="_blank" rel="noopener">BALL x PIT</a> × <a href="https://github.com/vycdev/falling-pickaxe" target="_blank" rel="noopener">vycdev/falling-pickaxe</a> × Backpack Battles × 靠裝勇者</p>
+  </dialog>
+
+  <dialog id="dlg-perk" aria-labelledby="perk-h" closedby="none">
+    <h2 id="perk-h">選擇一項強化</h2>
+    <p id="perk-sub" class="subtitle"></p>
+    <form method="dialog" id="perk-form" class="perk-list"></form>
+  </dialog>
+
+  <dialog id="dlg-result" aria-labelledby="result-h" closedby="none">
+    <h2 id="result-h"></h2>
+    <p id="result-reason" class="subtitle"></p>
+    <div id="result-stats" class="stats"></div>
+    <form method="dialog" class="result-actions">
+      <button class="btn primary" value="restart" autofocus>再挑戰一次</button>
+      <button class="btn" value="title">返回模式選擇</button>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-wiki" class="wiki-dlg" aria-labelledby="wiki-h" closedby="any">
+    <div class="wiki-header">
+      <h2 id="wiki-h">📖 遊戲 Wiki 與全系統百科</h2>
+      <form method="dialog">
+        <button class="btn small" value="close" autofocus>關閉</button>
+      </form>
+    </div>
+    <div id="wiki-tabs" class="wiki-tabs" role="tablist" aria-label="Wiki 章節"></div>
+    <div id="wiki-panels" class="wiki-panels"></div>
+  </dialog>
+
+</body>
+</html>
